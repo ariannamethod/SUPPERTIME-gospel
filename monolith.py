@@ -689,6 +689,7 @@ async def reset_updates():
     bot = Bot(token=TELEGRAM_TOKEN)
     try:
         with contextlib.suppress(RetryAfter):
+            await bot.delete_webhook(drop_pending_updates=True)
             await bot.get_updates()
     finally:
         with contextlib.suppress(RetryAfter):
