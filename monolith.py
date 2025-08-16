@@ -27,7 +27,8 @@ try:
 except Exception as e:
     raise RuntimeError("Install openai>=1.0:  pip install openai python-telegram-bot openai") from e
 
-MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1")
+# Default to the lightweight GPT-4.1 mini model unless overridden by env
+MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
 BOT_TOKEN = os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
 if not BOT_TOKEN:
     raise RuntimeError("Set BOT_TOKEN env var")
@@ -297,7 +298,51 @@ def scene_menu():
 # [HEROES] Persona files loader
 # =========================
 HEROES_DIR = Path("heroes")
-HEROES_PROMPTS = {}  # name -> text
+# Loaded persona objects: name -> Hero
+HEROES = {}
+
+REQUIRED_SECTIONS = ["NAME", "VOICE", "BEHAVIOR", "INIT", "REPLY"]
+
+
+class Hero:
+    """Represents one character with its prompt sections and runtime context."""
+
+    def __init__(self, name: str, sections: dict[str, str], raw_text: str):
+        self.name = name
+        self.sections = sections
+        self.raw_text = raw_text
+        self.ctx: str = ""
+
+    def load_chapter_context(self, md_text: str):
+        """Initialize hero-specific context from chapter markdown."""
+        instr = self.sections.get("INIT", "")
+        if not instr:
+            self.ctx = ""
+            return
+        prompt = f"{instr}\n\n---\n{md_text}\n---"[:5000]
+        try:
+            resp = client.responses.create(model=MODEL, input=prompt)
+            self.ctx = (resp.output_text or "").strip()
+        except Exception:
+            self.ctx = ""
+
+
+def parse_prompt_sections(txt: str) -> dict[str, str]:
+    sections: dict[str, list[str]] = {}
+    current: str | None = None
+    allowed = {s.upper() for s in REQUIRED_SECTIONS}
+    for line in txt.splitlines():
+        m = re.match(r"^([A-Z_ ]+):", line.strip())
+        if m and m.group(1).upper() in allowed:
+            current = m.group(1).upper()
+            sections[current] = []
+            rest = line.split(":", 1)[1].strip()
+            if rest:
+                sections[current].append(rest)
+        elif current:
+            sections[current].append(line.rstrip())
+    out = {k: "\n".join(v).strip() for k, v in sections.items()}
+    return out
 
 # возможные варианты имён файлов для некоторых персонажей
 HERO_NAME_ALIASES = {
@@ -326,23 +371,26 @@ def find_hero_file(base: Path, name: str) -> Path|None:
     return None
 
 def load_heroes():
-    global HEROES_PROMPTS
-    HEROES_PROMPTS = {}
+    global HEROES
+    HEROES = {}
     if not HEROES_DIR.exists():
         return 0
     count = 0
     for name in ALL_CHAR_NAMES:
         fp = find_hero_file(HEROES_DIR, name)
-        if fp:
-            try:
-                txt = fp.read_text(encoding="utf-8").strip()
-                # подрежем слишком длинные файлы, чтобы не застрелить токен-лимит
-                if len(txt) > 2000:
-                    txt = txt[:2000] + "\n\n[...truncated for runtime...]"
-                HEROES_PROMPTS[name] = txt
+        if not fp:
+            continue
+        try:
+            raw_full = fp.read_text(encoding="utf-8")
+            sections = parse_prompt_sections(raw_full)
+            if all(sec in sections for sec in REQUIRED_SECTIONS):
+                raw = raw_full.strip()
+                if len(raw) > 2000:
+                    raw = raw[:2000] + "\n\n[...truncated for runtime...]"
+                HEROES[name] = Hero(name, sections, raw)
                 count += 1
-            except Exception:
-                continue
+        except Exception:
+            continue
     return count
 
 def reload_heroes():
@@ -351,6 +399,12 @@ def reload_heroes():
 
 # сразу подтянем
 reload_heroes()
+
+def load_chapter_context_all(md_text: str):
+    """Notify all heroes about the selected chapter."""
+    for hero in HEROES.values():
+        hero.load_chapter_context(md_text)
+
 
 def build_personas_snapshot(responders: list[str]) -> str:
     """Собираем snapshot персонажей из файлов /heroes; если файла нет — короткий фолбэк."""
@@ -369,10 +423,11 @@ def build_personas_snapshot(responders: list[str]) -> str:
     }
     lines = []
     for n in responders:
-        txt = HEROES_PROMPTS.get(n)
-        if txt:
-            # берём первые ~600 символов для снапшота (хватает голоса и правил)
-            snippet = txt[:600]
+        hero = HEROES.get(n)
+        if hero:
+            snippet = hero.raw_text[:600]
+            if hero.ctx:
+                snippet += f"\n[Scene]: {hero.ctx[:200]}"
             lines.append(f"- {n}:\n{snippet}")
         else:
             lines.append(f"- {n}: {fallback.get(n,'(voice)')}")
@@ -436,6 +491,9 @@ async def reload_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # [HEROES] команда — перечитать промпты персонажей
 async def reload_heroes_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     n = reload_heroes()
+    st = db_get(update.effective_chat.id)
+    if st.get("chapter"):
+        load_chapter_context_all(CHAPTERS[st["chapter"]])
     await update.message.reply_text(f"Heroes reloaded: {n} persona files.")
 
 async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -462,6 +520,7 @@ async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ch = random.randint(1,11) if q.data == "ch_rand" else int(q.data.split("_")[1])
         db_set(chat_id, chapter=ch, dialogue_n=0)
         chapter_text = CHAPTERS[ch]
+        load_chapter_context_all(chapter_text)
         participants = guess_participants(chapter_text)
 
         responders, mode = CHAOS.pick(str(chat_id), chapter_text, "(enter)")
