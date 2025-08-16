@@ -39,35 +39,63 @@ if not os.getenv("OPENAI_API_KEY"):
 # =========================
 DB_PATH = os.getenv("ST_DB", "supertime.db")
 
-def db_init():
+
+def get_connection():
     conn = sqlite3.connect(DB_PATH)
-    conn.execute("""
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def db_init():
+    with get_connection() as conn:
+        conn.execute(
+            """
         CREATE TABLE IF NOT EXISTS chats (
             chat_id     INTEGER PRIMARY KEY,
             thread_id   TEXT,
             accepted    INTEGER DEFAULT 0,
             chapter     INTEGER,
             dialogue_n  INTEGER DEFAULT 0
-        )""")
-    conn.commit()
-    return conn
+        )"""
+        )
+        conn.commit()
 
-DB = db_init()
+
+db_init()
+
 
 def db_get(chat_id):
-    cur = DB.execute("SELECT chat_id, thread_id, accepted, chapter, dialogue_n FROM chats WHERE chat_id=?", (chat_id,))
-    row = cur.fetchone()
-    if row:
-        return {"chat_id": row[0], "thread_id": row[1], "accepted": bool(row[2]), "chapter": row[3], "dialogue_n": row[4]}
-    DB.execute("INSERT OR IGNORE INTO chats(chat_id) VALUES(?)", (chat_id,))
-    DB.commit()
-    return {"chat_id": chat_id, "thread_id": None, "accepted": False, "chapter": None, "dialogue_n": 0}
+    with get_connection() as conn:
+        cur = conn.execute(
+            "SELECT chat_id, thread_id, accepted, chapter, dialogue_n FROM chats WHERE chat_id=?",
+            (chat_id,),
+        )
+        row = cur.fetchone()
+        if row:
+            return {
+                "chat_id": row["chat_id"],
+                "thread_id": row["thread_id"],
+                "accepted": bool(row["accepted"]),
+                "chapter": row["chapter"],
+                "dialogue_n": row["dialogue_n"],
+            }
+        conn.execute("INSERT OR IGNORE INTO chats(chat_id) VALUES(?)", (chat_id,))
+        conn.commit()
+    return {
+        "chat_id": chat_id,
+        "thread_id": None,
+        "accepted": False,
+        "chapter": None,
+        "dialogue_n": 0,
+    }
+
 
 def db_set(chat_id, **fields):
     keys = ", ".join([f"{k}=?" for k in fields.keys()])
     vals = list(fields.values()) + [chat_id]
-    DB.execute(f"UPDATE chats SET {keys} WHERE chat_id=?", vals)
-    DB.commit()
+    with get_connection() as conn:
+        conn.execute(f"UPDATE chats SET {keys} WHERE chat_id=?", vals)
+        conn.commit()
 
 # =========================
 # Chapters I/O
