@@ -1,7 +1,7 @@
 # monolith.py
 # SUPPERTIME — Telegram monolith (Assistants API, threads, SQLite memory)
 # Run:
-#   BOT_TOKEN=xxx OPENAI_API_KEY=xxx python monolith.py
+#   TELEGRAM_TOKEN=xxx OPENAI_API_KEY=xxx python monolith.py
 # Optional:
 #   OPENAI_MODEL=gpt-4.1
 #   ASSISTANT_ID=<reuse existing>  
@@ -29,9 +29,9 @@ except Exception as e:
 
 # Default to the lightweight GPT-4.1 mini model unless overridden by env
 MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
-BOT_TOKEN = os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
-if not BOT_TOKEN:
-    raise RuntimeError("Set BOT_TOKEN env var")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+if not TELEGRAM_TOKEN:
+    raise RuntimeError("Set TELEGRAM_TOKEN env var")
 if not os.getenv("OPENAI_API_KEY"):
     raise RuntimeError("Set OPENAI_API_KEY env var")
 
@@ -587,7 +587,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Main
 # =========================
 async def main():
-    app = Application.builder().token(BOT_TOKEN).build()
+    app = Application.builder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("menu", menu_cmd))
