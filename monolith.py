@@ -14,6 +14,7 @@ import asyncio
 import hashlib
 from pathlib import Path
 from collections import defaultdict, deque
+import contextlib
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot
 from telegram.constants import ParseMode
@@ -21,6 +22,7 @@ from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler,
     MessageHandler, ContextTypes, filters
 )
+from telegram.error import RetryAfter
 
 # --- OpenAI Assistants API (SDK >= 1.0) ---
 try:
@@ -686,9 +688,11 @@ async def reset_updates():
     """Terminate any other long-polling sessions for this bot."""
     bot = Bot(token=TELEGRAM_TOKEN)
     try:
-        await bot.get_updates()
+        with contextlib.suppress(RetryAfter):
+            await bot.get_updates()
     finally:
-        await bot.close()
+        with contextlib.suppress(RetryAfter):
+            await bot.close()
 
 
 def main():
