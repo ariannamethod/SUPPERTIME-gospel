@@ -1,3 +1,5 @@
+Participants: Judas, Mary
+
 The next morning, following my betrayal, Yeshu was arrested.  
 Imperial guards burst through the apartment, cursing and laughing like jackals.  
 Yeshu sat at the kitchen table — iron shackles on his wrists.  

@@ -1,3 +1,5 @@
+Participants: Judas, Mary
+
 I sat there, reading. Then — something felt off. Like the air had weight. I closed the book.  
 Yeshu and the others wouldn’t be back soon. Mary was asleep.  
 “What the fuck…”  

@@ -141,6 +141,11 @@ NAME_MARKERS = {
 ALL_CHAR_NAMES = list(NAME_MARKERS.keys())
 
 def guess_participants(chapter_text: str):
+    header_match = re.match(r"\s*Participants:\s*(.*)", chapter_text or "", re.IGNORECASE)
+    if header_match:
+        names = [n.strip() for n in header_match.group(1).split(',') if n.strip()]
+        return names
+
     present = []
     for name, rx in NAME_MARKERS.items():
         if rx.search(chapter_text or ""):

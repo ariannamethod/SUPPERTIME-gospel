@@ -1,3 +1,5 @@
+Participants: Judas, Mary
+
 Savage cursing echoed from the entry. Not Yakov this time.  
 Mary tried to slip off Yeshu’s lap — he held her still.
 
