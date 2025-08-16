@@ -4,7 +4,7 @@
 #   BOT_TOKEN=xxx OPENAI_API_KEY=xxx python monolith_assistants.py
 # Optional:
 #   OPENAI_MODEL=gpt-4.1
-#   ASSISTANT_ID=<reuse existing>  (иначе создастся новый и сохранится в .assistant_id)
+#   ASSISTANT_ID=<reuse existing>  
 
 import os
 import re
