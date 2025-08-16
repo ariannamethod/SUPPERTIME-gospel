@@ -1,3 +1,5 @@
+Participants: Judas, Mary
+
 Ever since Mary moved in, I couldn’t think of anything else. That half-witted girl with eyes black as night hijacked my mind.  
 Every spare minute — hers. I hadn’t spoken a word to her. Didn’t need to. Thinking was enough.
 

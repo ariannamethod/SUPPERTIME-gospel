@@ -1,3 +1,5 @@
+Participants: Judas, Mary
+
 Before she met us, Mary sold fruit in the streets. She came from the edge of town — some rough, torn-up place.
 
 From what little she told us, she was about twenty. Her father, Shlomo, was a merchant.

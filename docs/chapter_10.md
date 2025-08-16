@@ -1,3 +1,5 @@
+Participants: Judas, Mary
+
 Mary flinched.  
 She hadn’t caught every word Yeshu said — but she felt the charge in the air.  
 Jan sprang up, knife already out.  

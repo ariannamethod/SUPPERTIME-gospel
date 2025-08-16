@@ -1,3 +1,5 @@
+Participants: Judas, Mary
+
 Yeshu called us to the table.  
 ‘Time,’ he said. ‘We don’t have much.’  
 He brushed a few crumbs from the cloth.  

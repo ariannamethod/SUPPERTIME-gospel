@@ -1,3 +1,5 @@
+Participants: Judas, Mary
+
 ‘Slippery bastard, that Theodore,’ Peter said after the guy vanished.  
 ‘Did you catch that spark in his eye? Devil’s glint, swear to God. Wriggled like an eel — the fucker was alive! What was he even on about? What did he want? I didn’t catch a damn thing.’
 

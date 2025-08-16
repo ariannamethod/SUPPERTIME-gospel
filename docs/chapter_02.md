@@ -1,3 +1,5 @@
+Participants: Judas, Mary
+
 When Yeshu launches one of his trademark speeches, it’s hard not to fall under the spell. People like him are born when sorrow soaks the earth right through, leaving clots of blood on the surface. Yeshu was one of those clots. However I tried, I could never fathom him. To call him strange is to say nothing; he seemed woven of oddities—yet inside the weave you sensed a kind of twisted order.
 
 Winter or summer he wore the same black jacket and, on his head, a black beret. Clothes clearly meant little to him; the real oddities were in the character, not the wardrobe. He voiced his thoughts in a peculiar way—slow, languid, as though granting the listener a favor—then suddenly blinded you with some (usually tactless) question. Refuse to answer and he flared; and when Yeshu flared you kept clear—he could wound with a single bitter word, though he always apologized later.

@@ -1,3 +1,5 @@
+Participants: Judas, Mary
+
 The peephole blacked out for a sec. Then a key snarled in the lock.
 Yakov swung the door open. The prick was all tuxed up, bow-tie and everything.
 — Ah… It’s you…
