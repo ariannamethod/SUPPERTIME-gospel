@@ -205,10 +205,8 @@ def ensure_assistant():
         asst_id = ASSISTANT_ID_PATH.read_text().strip()
 
     if asst_id:
-        # trust given id
         return asst_id
 
-    # Create new assistant with orchestration rules
     instructions = """
 You are the SUPPERTIME Orchestrator inside a Telegram bot.
 You DO NOT act like a polite assistant. You stage live scenes from a controversial literary text.
@@ -225,7 +223,7 @@ Hard rules:
         model=MODEL,
         name="SUPPERTIME Orchestrator",
         instructions=instructions,
-        tools=[]  # без Code Interpreter; нам не нужен здесь
+        tools=[]
     )
     ASSISTANT_ID_PATH.write_text(asst.id)
     return asst.id
@@ -266,7 +264,6 @@ def thread_last_text(thread_id: str) -> str:
     for m in msgs.data:
         if m.role != "assistant":
             continue
-        # collect textual parts
         for c in m.content:
             if c.type == "text":
                 out.append(c.text.value.strip())
@@ -297,24 +294,96 @@ def scene_menu():
     ])
 
 # =========================
+# [HEROES] Persona files loader
+# =========================
+HEROES_DIR = Path("heroes")
+HEROES_PROMPTS = {}  # name -> text
+
+# возможные варианты имён файлов для некоторых персонажей
+HERO_NAME_ALIASES = {
+    "Yeshua": ["Yeshua", "Yeshu"],
+    "Dubrovsky": ["Dubrovsky", "Aleksei_Dubrovskii", "Alexey_Dubrovsky", "Aleksey_Dubrovsky"],
+    "Leo": ["Leo", "Painter", "Artist"],
+}
+
+def find_hero_file(base: Path, name: str) -> Path|None:
+    # точное имя
+    candidates = [name]
+    # алиасы
+    for k, al in HERO_NAME_ALIASES.items():
+        if name == k:
+            candidates.extend(al)
+    # варианты регистров/расширений
+    exts = [".md", ".txt", ".prompt"]
+    tries = []
+    for stem in candidates:
+        for ext in exts:
+            tries.append(base / f"{stem}{ext}")
+            tries.append(base / f"{stem.lower()}{ext}")
+    for p in tries:
+        if p.exists():
+            return p
+    return None
+
+def load_heroes():
+    global HEROES_PROMPTS
+    HEROES_PROMPTS = {}
+    if not HEROES_DIR.exists():
+        return 0
+    count = 0
+    for name in ALL_CHAR_NAMES:
+        fp = find_hero_file(HEROES_DIR, name)
+        if fp:
+            try:
+                txt = fp.read_text(encoding="utf-8").strip()
+                # подрежем слишком длинные файлы, чтобы не застрелить токен-лимит
+                if len(txt) > 2000:
+                    txt = txt[:2000] + "\n\n[...truncated for runtime...]"
+                HEROES_PROMPTS[name] = txt
+                count += 1
+            except Exception:
+                continue
+    return count
+
+def reload_heroes():
+    n = load_heroes()
+    return n
+
+# сразу подтянем
+reload_heroes()
+
+def build_personas_snapshot(responders: list[str]) -> str:
+    """Собираем snapshot персонажей из файлов /heroes; если файла нет — короткий фолбэк."""
+    fallback = {
+        "Judas":  "bitter, lucid; black humor; obsessed with authenticity and Mary",
+        "Yeshua": "slow voice → sudden piercing questions; parables; sad under laughter",
+        "Peter":  "acid sarcasm; vanity; jealousy toward Mary",
+        "Mary":   "quiet; few words; service as love; fragile holiness",
+        "Yakov":  "order-obsessed; grumbling; loyal envy",
+        "Jan":    "gentle giant; absolute loyalty to Teacher",
+        "Thomas": "cynical, knife-in-coat; skewers hypocrisy",
+        "Andrew": "nearly mute; ballast",
+        "Leo":    "artist frenzy; ‘Bella mia!’",
+        "Theodore":"stammered ‘-s’; ghostlike visitor from future",
+        "Dubrovsky":"glitch aphorist; fourth-wall",
+    }
+    lines = []
+    for n in responders:
+        txt = HEROES_PROMPTS.get(n)
+        if txt:
+            # берём первые ~600 символов для снапшота (хватает голоса и правил)
+            snippet = txt[:600]
+            lines.append(f"- {n}:\n{snippet}")
+        else:
+            lines.append(f"- {n}: {fallback.get(n,'(voice)')}")
+    return "\n".join(lines)
+
+# =========================
 # Orchestration helpers
 # =========================
 def build_scene_prompt(ch_num: int, chapter_text: str, responders: list[str], user_text: str|None, recent_summary: str):
-    # Сцена и снапшоты персон
-    personas_desc = {
-        "Judas":  "bitter, lucid, painfully honest; black humor; obsessed with authenticity and Mary",
-        "Yeshua": "slow voice → sudden piercing questions; parables; apologizes after cutting words; sad under laughter",
-        "Peter":  "acid sarcasm, vanity, cigarette ash; jealousy toward Mary; showy bravado hiding hurt",
-        "Mary":   "quiet, few words, sometimes misuses simple terms; service as love; fragile holiness",
-        "Yakov":  "order-obsessed, grumbling, petty power via cleanliness; loyal envy",
-        "Jan":    "giant with a child heart; loud exclamation; absolute loyalty to Teacher",
-        "Thomas": "cynical laughter, knife in coat, heckles truths nobody wants",
-        "Andrew": "almost mute; short, weighty answers",
-        "Leo":    "artist frenzy; ‘Bella mia!’; sketches; loves full-bodied beauty",
-        "Theodore":"stammered ‘-s’; ghostlike visitor from future; papirosa smoke; dissolves under stress",
-        "Dubrovsky":"glitch-like; speaks only in aphorisms; breaks the fourth wall"
-    }
-    personas = "\n".join([f"- {n}: {personas_desc.get(n,'')}" for n in responders])
+    # [HEROES] вместо хардкода — берём снапшот из файлов /heroes
+    personas = build_personas_snapshot(responders)
 
     scene = f"""
 SCENE CONTEXT
@@ -327,7 +396,7 @@ Recent conversation (compressed):
 {recent_summary}
 
 User just wrote: {user_text or '(silence)'}
-PERSONAS SNAPSHOT
+PERSONAS SNAPSHOT (from /heroes files)
 {personas}
 
 Output exactly {len(responders)} lines — one per listed participant, format:
@@ -336,9 +405,6 @@ Output exactly {len(responders)} lines — one per listed participant, format:
     return scene.strip()
 
 def compress_history_for_prompt(chat_id: int, limit: int = 8) -> str:
-    # Берём последние assistant/user сообщения из thread? Мы не читаем всё — делаем локальную выжимку.
-    # Здесь упрощённо: ничего не храним дополнительно, сжимать будем по месту — это текст из TG памяти не нужен,
-    # так как Assistants хранит тред. Но небольшой маркер добавим.
     return "(stored in thread)"
 
 # =========================
@@ -356,7 +422,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Commands:\n/start — disclaimer\n/menu — chapters\n/reload — reload docs\n"
+        "Commands:\n/start — disclaimer\n/menu — chapters\n/reload — reload docs\n/reload_heroes — reload /heroes\n"
         "Workflow: OK → choose chapter → live dialogue starts → reply to steer them."
     )
 
@@ -366,6 +432,11 @@ async def menu_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def reload_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     n = reload_chapters()
     await update.message.reply_text(f"Chapters reloaded: {n} files.")
+
+# [HEROES] команда — перечитать промпты персонажей
+async def reload_heroes_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    n = reload_heroes()
+    await update.message.reply_text(f"Heroes reloaded: {n} persona files.")
 
 async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -393,11 +464,9 @@ async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chapter_text = CHAPTERS[ch]
         participants = guess_participants(chapter_text)
 
-        # кто говорит в первый такт
         responders, mode = CHAOS.pick(str(chat_id), chapter_text, "(enter)")
         responders = [r for r in responders if r in participants] or participants[: min(3, len(participants))]
 
-        # Пишем системное сообщение в тред (контекст сцены)
         scene_prompt = build_scene_prompt(ch, chapter_text, responders, "(enters the room)", compress_history_for_prompt(chat_id))
         thread_add_message(thread_id, "user", scene_prompt)
         run_and_wait(thread_id)
@@ -437,13 +506,10 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chapter_text = CHAPTERS[ch]
     participants = guess_participants(chapter_text)
 
-    # кто говорит дальше
     responders, mode = CHAOS.pick(str(chat_id), chapter_text, msg)
     responders = [r for r in responders if r in participants] or participants[: min(3, len(participants))]
 
-    # запишем реплику пользователя в тред
     client.beta.threads.messages.create(thread_id=thread_id, role="user", content=f"USER SAID: {msg}")
-    # контекст сцены для текущего такта
     scene_prompt = build_scene_prompt(ch, chapter_text, responders, msg, compress_history_for_prompt(chat_id))
     thread_add_message(thread_id, "user", scene_prompt)
     run_and_wait(thread_id)
@@ -467,6 +533,7 @@ async def main():
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("menu", menu_cmd))
     app.add_handler(CommandHandler("reload", reload_cmd))
+    app.add_handler(CommandHandler("reload_heroes", reload_heroes_cmd))  # [HEROES]
     app.add_handler(CallbackQueryHandler(on_click))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     print("SUPPERTIME (Assistants API) — ready.")
