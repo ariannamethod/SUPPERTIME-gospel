@@ -321,8 +321,7 @@ def chapters_menu():
 
 def scene_menu():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("← Chapters", callback_data="back_chapters"),
-         InlineKeyboardButton("🌀 Random", callback_data="ch_rand")]
+        [InlineKeyboardButton("/back", callback_data="back_chapters")]
     ])
 
 # =========================
@@ -582,6 +581,9 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def menu_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Choose a chapter:", reply_markup=chapters_menu())
 
+async def back_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Choose a chapter:", reply_markup=chapters_menu())
+
 async def reload_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     n = reload_chapters()
     await update.message.reply_text(f"Chapters reloaded: {n} files.")
@@ -704,10 +706,12 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("menu", menu_cmd))
+    app.add_handler(CommandHandler("back", back_cmd))
     app.add_handler(CommandHandler("reload", reload_cmd))
     app.add_handler(CommandHandler("reload_heroes", reload_heroes_cmd))  # [HEROES]
     app.add_handler(CallbackQueryHandler(on_click))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
+    loop.run_until_complete(app.bot.set_my_commands([("back", "Return to previous menu")]))
     print("SUPPERTIME (Assistants API) — ready.")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
