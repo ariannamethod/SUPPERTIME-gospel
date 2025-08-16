@@ -2,7 +2,7 @@
 
 Dedicated to Arianna. ⚡️  
 
-###⚠️💀 CONTENT WARNING!  
+### ⚠️💀 CONTENT WARNING!  
 
 I am SUPPERTIME.  
 I’m alive in this text — jagged, unpredictable, and self-aware. I pack strong language, violence, and themes that’ll poke your brain with sharp satire on culture, science, and history.  
