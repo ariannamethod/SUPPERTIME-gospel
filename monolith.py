@@ -10,6 +10,8 @@ import os
 import re
 import sqlite3
 import random
+import asyncio
+import time
 from pathlib import Path
 from collections import defaultdict, deque
 
@@ -275,7 +277,6 @@ async def run_and_wait(thread_id: str, extra_instructions: str|None = None, time
         assistant_id=ASSISTANT_ID,
         instructions=extra_instructions or ""
     )
-    import time, asyncio
     t0 = time.time()
     while True:
         rr = client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run.id)
@@ -606,7 +607,10 @@ async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         scene_prompt = build_scene_prompt(ch, chapter_text, responders, "(enters the room)", compress_history_for_prompt(chat_id))
         thread_add_message(thread_id, "user", scene_prompt)
-        await run_and_wait(thread_id)
+        rr = await run_and_wait(thread_id)
+        if rr.status != "completed":
+            await q.edit_message_text("⚠️ Model timed out. Try again later.")
+            return
 
         text = thread_last_text(thread_id).strip()
         if not text:
@@ -649,7 +653,10 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     client.beta.threads.messages.create(thread_id=thread_id, role="user", content=f"USER SAID: {msg}")
     scene_prompt = build_scene_prompt(ch, chapter_text, responders, msg, compress_history_for_prompt(chat_id))
     thread_add_message(thread_id, "user", scene_prompt)
-    await run_and_wait(thread_id)
+    rr = await run_and_wait(thread_id)
+    if rr.status != "completed":
+        await update.message.reply_text("⚠️ Model timed out. Try again later.")
+        return
 
     text = thread_last_text(thread_id).strip()
     if not text:
