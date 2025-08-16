@@ -1,7 +1,7 @@
-# monolith_assistants.py
+# monolith.py
 # SUPPERTIME — Telegram monolith (Assistants API, threads, SQLite memory)
 # Run:
-#   BOT_TOKEN=xxx OPENAI_API_KEY=xxx python monolith_assistants.py
+#   BOT_TOKEN=xxx OPENAI_API_KEY=xxx python monolith.py
 # Optional:
 #   OPENAI_MODEL=gpt-4.1
 #   ASSISTANT_ID=<reuse existing>  
