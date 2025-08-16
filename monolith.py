@@ -10,6 +10,8 @@ import os
 import re
 import sqlite3
 import random
+import asyncio
+import hashlib
 from pathlib import Path
 from collections import defaultdict, deque
 
@@ -300,6 +302,9 @@ HEROES_DIR = Path("heroes")
 # Loaded persona objects: name -> Hero
 HEROES = {}
 
+# Cache for hero context per chapter hash to avoid recomputation
+HERO_CTX_CACHE: dict[tuple[str, str], str] = {}
+
 REQUIRED_SECTIONS = ["NAME", "VOICE", "BEHAVIOR", "INIT", "REPLY"]
 
 
@@ -312,16 +317,26 @@ class Hero:
         self.raw_text = raw_text
         self.ctx: str = ""
 
-    def load_chapter_context(self, md_text: str):
-        """Initialize hero-specific context from chapter markdown."""
+    async def load_chapter_context(self, md_text: str, md_hash: str):
+        """Initialize hero-specific context from chapter markdown.
+
+        Runs OpenAI calls in a background thread and caches the result.
+        """
+        cache_key = (self.name, md_hash)
+        if cache_key in HERO_CTX_CACHE:
+            self.ctx = HERO_CTX_CACHE[cache_key]
+            return
         instr = self.sections.get("INIT", "")
         if not instr:
             self.ctx = ""
             return
         prompt = f"{instr}\n\n---\n{md_text}\n---"[:5000]
         try:
-            resp = client.responses.create(model=MODEL, input=prompt)
+            resp = await asyncio.to_thread(
+                client.responses.create, model=MODEL, input=prompt
+            )
             self.ctx = (resp.output_text or "").strip()
+            HERO_CTX_CACHE[cache_key] = self.ctx
         except Exception:
             self.ctx = ""
 
@@ -393,16 +408,19 @@ def load_heroes():
     return count
 
 def reload_heroes():
+    HERO_CTX_CACHE.clear()
     n = load_heroes()
     return n
 
 # сразу подтянем
 reload_heroes()
 
-def load_chapter_context_all(md_text: str):
-    """Notify all heroes about the selected chapter."""
-    for hero in HEROES.values():
-        hero.load_chapter_context(md_text)
+async def load_chapter_context_all(md_text: str):
+    """Notify all heroes about the selected chapter asynchronously."""
+    md_hash = hashlib.sha1(md_text.encode("utf-8")).hexdigest()
+    tasks = [asyncio.create_task(hero.load_chapter_context(md_text, md_hash)) for hero in HEROES.values()]
+    if tasks:
+        await asyncio.gather(*tasks)
 
 
 def build_personas_snapshot(responders: list[str]) -> str:
@@ -492,7 +510,7 @@ async def reload_heroes_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     n = reload_heroes()
     st = db_get(update.effective_chat.id)
     if st.get("chapter"):
-        load_chapter_context_all(CHAPTERS[st["chapter"]])
+        await load_chapter_context_all(CHAPTERS[st["chapter"]])
     await update.message.reply_text(f"Heroes reloaded: {n} persona files.")
 
 async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -519,7 +537,7 @@ async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ch = random.randint(1,11) if q.data == "ch_rand" else int(q.data.split("_")[1])
         db_set(chat_id, chapter=ch, dialogue_n=0)
         chapter_text = CHAPTERS[ch]
-        load_chapter_context_all(chapter_text)
+        await load_chapter_context_all(chapter_text)
         participants = guess_participants(chapter_text)
 
         responders, mode = CHAOS.pick(str(chat_id), chapter_text, "(enter)")
