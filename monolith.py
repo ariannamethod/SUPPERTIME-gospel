@@ -269,13 +269,13 @@ def ensure_thread(chat_id: int) -> str:
 def thread_add_message(thread_id: str, role: str, content: str):
     client.beta.threads.messages.create(thread_id=thread_id, role=role, content=content)
 
-def run_and_wait(thread_id: str, extra_instructions: str|None = None, timeout_s: int = 120):
+async def run_and_wait(thread_id: str, extra_instructions: str|None = None, timeout_s: int = 120):
     run = client.beta.threads.runs.create(
         thread_id=thread_id,
         assistant_id=ASSISTANT_ID,
         instructions=extra_instructions or ""
     )
-    import time
+    import time, asyncio
     t0 = time.time()
     while True:
         rr = client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run.id)
@@ -284,7 +284,7 @@ def run_and_wait(thread_id: str, extra_instructions: str|None = None, timeout_s:
         if time.time() - t0 > timeout_s:
             client.beta.threads.runs.cancel(thread_id=thread_id, run_id=run.id)
             return rr
-        time.sleep(0.8)
+        await asyncio.sleep(0.8)
 
 def thread_last_text(thread_id: str) -> str:
     msgs = client.beta.threads.messages.list(thread_id=thread_id, order="desc", limit=10)
@@ -603,7 +603,7 @@ async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         scene_prompt = build_scene_prompt(ch, chapter_text, responders, "(enters the room)", compress_history_for_prompt(chat_id))
         thread_add_message(thread_id, "user", scene_prompt)
-        run_and_wait(thread_id)
+        await run_and_wait(thread_id)
 
         text = thread_last_text(thread_id).strip()
         if not text:
@@ -646,7 +646,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     client.beta.threads.messages.create(thread_id=thread_id, role="user", content=f"USER SAID: {msg}")
     scene_prompt = build_scene_prompt(ch, chapter_text, responders, msg, compress_history_for_prompt(chat_id))
     thread_add_message(thread_id, "user", scene_prompt)
-    run_and_wait(thread_id)
+    await run_and_wait(thread_id)
 
     text = thread_last_text(thread_id).strip()
     if not text:
