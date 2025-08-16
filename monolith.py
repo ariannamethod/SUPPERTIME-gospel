@@ -3,7 +3,7 @@
 # Run:
 #   TELEGRAM_TOKEN=xxx OPENAI_API_KEY=xxx python monolith.py
 # Optional:
-#   OPENAI_MODEL=gpt-4.1
+#   OPENAI_MODEL=gpt-4.1-mini
 #   ASSISTANT_ID=<reuse existing>  
 
 import os
