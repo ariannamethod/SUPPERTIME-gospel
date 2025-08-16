@@ -10,7 +10,6 @@ import os
 import re
 import sqlite3
 import random
-import asyncio
 from pathlib import Path
 from collections import defaultdict, deque
 
@@ -586,7 +585,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =========================
 # Main
 # =========================
-async def main():
+def main():
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
@@ -596,7 +595,7 @@ async def main():
     app.add_handler(CallbackQueryHandler(on_click))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     print("SUPPERTIME (Assistants API) — ready.")
-    await app.run_polling(allowed_updates=Update.ALL_TYPES)
+    app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
