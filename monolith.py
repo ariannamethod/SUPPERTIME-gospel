@@ -459,7 +459,55 @@ Output exactly {len(responders)} lines — one per listed participant, format:
     return scene.strip()
 
 def compress_history_for_prompt(chat_id: int, limit: int = 8) -> str:
-    return "(stored in thread)"
+    st = db_get(chat_id)
+    thread_id = st.get("thread_id")
+    if not thread_id:
+        return ""
+
+    # Grab recent messages from the thread. Fetch a bit more than needed to
+    # pair user ↔ assistant exchanges.
+    msgs = client.beta.threads.messages.list(
+        thread_id=thread_id, order="desc", limit=limit * 2
+    )
+
+    # Collect textual user/assistant messages in chronological order.
+    history = []
+    for m in reversed(msgs.data):
+        if m.role not in ("user", "assistant"):
+            continue
+        parts = []
+        for c in m.content:
+            if c.type == "text":
+                parts.append(c.text.value.strip())
+        if parts:
+            history.append((m.role, " ".join(parts)))
+
+    # Walk backwards pairing user messages with following assistant replies.
+    exchanges = []
+    i = len(history) - 1
+    while i > 0 and len(exchanges) < limit:
+        role, text = history[i]
+        prev_role, prev_text = history[i - 1]
+        if role == "assistant" and prev_role == "user":
+            exchanges.append((prev_text, text))
+            i -= 2
+        else:
+            i -= 1
+    exchanges.reverse()
+
+    def _truncate(msg: str, tokens: int = 40) -> str:
+        words = msg.split()
+        if len(words) <= tokens:
+            return msg
+        return " ".join(words[:tokens]) + "…"
+
+    lines = []
+    for user_msg, assistant_msg in exchanges:
+        u = _truncate(user_msg)
+        a = _truncate(assistant_msg)
+        lines.append(f"U:{u}\nA:{a}")
+
+    return "\n---\n".join(lines)
 
 # =========================
 # Telegram Handlers
