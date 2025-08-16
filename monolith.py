@@ -293,7 +293,7 @@ async def run_and_wait(thread_id: str, extra_instructions: str|None = None, time
         if time.time() - t0 > timeout_s:
             client.beta.threads.runs.cancel(thread_id=thread_id, run_id=run.id)
             return rr
-        await asyncio.sleep(0.8)
+        await asyncio.sleep(0.3)
 
 def thread_last_text(thread_id: str) -> str:
     msgs = client.beta.threads.messages.list(thread_id=thread_id, order="desc", limit=10)
@@ -450,12 +450,21 @@ def reload_heroes():
 # сразу подтянем
 reload_heroes()
 
-async def load_chapter_context_all(md_text: str):
-    """Notify all heroes about the selected chapter asynchronously."""
+async def load_chapter_context_all(md_text: str, names: list[str]):
+    """Notify selected heroes about the chosen chapter in the background."""
     md_hash = hashlib.sha1(md_text.encode("utf-8")).hexdigest()
-    tasks = [asyncio.create_task(hero.load_chapter_context(md_text, md_hash)) for hero in HEROES.values()]
-    if tasks:
-        await asyncio.gather(*tasks)
+
+    async def run(hero: "Hero"):
+        try:
+            await asyncio.wait_for(hero.load_chapter_context(md_text, md_hash), timeout=10)
+        except Exception:
+            pass
+
+    for n in names:
+        hero = HEROES.get(n)
+        if hero:
+            asyncio.create_task(run(hero))
+    await asyncio.sleep(0)
 
 
 def build_personas_snapshot(responders: list[str]) -> str:
@@ -598,7 +607,9 @@ async def reload_heroes_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     n = reload_heroes()
     st = db_get(update.effective_chat.id)
     if st.get("chapter"):
-        await load_chapter_context_all(CHAPTERS[st["chapter"]])
+        chapter_text = CHAPTERS[st["chapter"]]
+        participants = guess_participants(chapter_text)
+        await load_chapter_context_all(chapter_text, participants)
     await update.message.reply_text(f"Heroes reloaded: {n} persona files.")
 
 async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -625,8 +636,8 @@ async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ch = random.randint(1,11) if q.data == "ch_rand" else int(q.data.split("_")[1])
         db_set(chat_id, chapter=ch, dialogue_n=0)
         chapter_text = CHAPTERS[ch]
-        await load_chapter_context_all(chapter_text)
         participants = guess_participants(chapter_text)
+        await load_chapter_context_all(chapter_text, participants)
 
         responders, mode = CHAOS.pick(str(chat_id), chapter_text, "(enter)")
         responders = [r for r in responders if r in participants] or participants[: min(3, len(participants))]
@@ -669,6 +680,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ch = st["chapter"]
     chapter_text = CHAPTERS[ch]
     participants = guess_participants(chapter_text)
+    await load_chapter_context_all(chapter_text, participants)
 
     responders, mode = CHAOS.pick(str(chat_id), chapter_text, msg)
     responders = [r for r in responders if r in participants] or participants[: min(3, len(participants))]
