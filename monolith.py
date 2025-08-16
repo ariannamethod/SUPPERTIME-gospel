@@ -338,6 +338,7 @@ class Hero:
         self.name = name
         self.sections = sections
         self.raw_text = raw_text
+        self.reply: str = sections.get("REPLY", "")
         self.ctx: str = ""
 
     def load_chapter_context(self, md_text: str):
@@ -453,6 +454,8 @@ def build_personas_snapshot(responders: list[str]) -> str:
         hero = HEROES.get(n)
         if hero:
             snippet = hero.raw_text[:600]
+            if hero.reply:
+                snippet += f"\n[REPLY]: {hero.reply}"
             if hero.ctx:
                 snippet += f"\n[Scene]: {hero.ctx[:200]}"
             lines.append(f"- {n}:\n{snippet}")
