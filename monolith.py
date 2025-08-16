@@ -15,7 +15,7 @@ import hashlib
 from pathlib import Path
 from collections import defaultdict, deque
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot
 from telegram.constants import ParseMode
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler,
@@ -682,7 +682,17 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =========================
 # Main
 # =========================
+async def reset_updates():
+    """Terminate any other long-polling sessions for this bot."""
+    bot = Bot(token=TELEGRAM_TOKEN)
+    try:
+        await bot.get_updates()
+    finally:
+        await bot.close()
+
+
 def main():
+    asyncio.run(reset_updates())
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
