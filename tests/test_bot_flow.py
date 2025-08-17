@@ -92,6 +92,7 @@ def test_unknown_chapter_callback(monkeypatch):
     chat_id = 4242
     chat = SimpleNamespace(id=chat_id, send_message=AsyncMock())
 
+    monolith.db_get(chat_id)  # ensure row exists
     monolith.db_set(chat_id, accepted=1, chapter=3, dialogue_n=2, last_summary="old")
     state_before = monolith.db_get(chat_id)
 
@@ -116,5 +117,5 @@ def test_menu_shows_chapters(monkeypatch):
     asyncio.run(monolith.menu_cmd(update, context))
     msg.reply_text.assert_awaited()
     args, kwargs = msg.reply_text.call_args
-    assert args[0] == "Pick a chapter:"
+    assert args[0] == "YOU CHOOSE:"
     assert isinstance(kwargs.get("reply_markup"), monolith.InlineKeyboardMarkup)
