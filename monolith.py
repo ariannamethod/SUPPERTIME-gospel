@@ -32,7 +32,7 @@ from telegram.error import RetryAfter
 
 # --- OpenAI Assistants API (SDK >= 1.0) ---
 try:
-    from openai import OpenAI
+    from openai import OpenAI, APIConnectionError, APITimeoutError
 except ImportError as e:
     raise RuntimeError(
         "Install openai>=1.0:  pip install openai python-telegram-bot openai"
@@ -42,6 +42,10 @@ except ImportError as e:
 MODEL = settings.openai_model
 TEMPERATURE = settings.openai_temperature
 TELEGRAM_TOKEN = settings.telegram_token
+
+OPENAI_TIMEOUT = 30
+OPENAI_RETRY_ATTEMPTS = 3
+OPENAI_RETRY_DELAY = 1
 
 # =========================
 # Storage: SQLite (threads & state)
@@ -319,17 +323,52 @@ def thread_add_message(thread_id: str, role: str, content: str):
     logger.info("Posting %s message to thread %s", role, thread_id)
     client.beta.threads.messages.create(thread_id=thread_id, role=role, content=content)
 
-async def run_and_wait(thread_id: str, extra_instructions: str|None = None, timeout_s: int = 120):
+
+async def run_and_wait(thread_id: str, extra_instructions: str | None = None, timeout_s: int = 120):
     logger.info("Starting run for thread %s", thread_id)
-    run = client.beta.threads.runs.create(
-        thread_id=thread_id,
-        assistant_id=ASSISTANT_ID,
-        instructions=extra_instructions or ""
-    )
     import time, asyncio
+
+    for attempt in range(1, OPENAI_RETRY_ATTEMPTS + 1):
+        try:
+            run = client.beta.threads.runs.create(
+                thread_id=thread_id,
+                assistant_id=ASSISTANT_ID,
+                instructions=extra_instructions or "",
+                timeout=OPENAI_TIMEOUT,
+            )
+            break
+        except (APIConnectionError, APITimeoutError) as e:
+            logger.warning(
+                "Run create failed (attempt %s/%s): %s",
+                attempt,
+                OPENAI_RETRY_ATTEMPTS,
+                e,
+            )
+            if attempt == OPENAI_RETRY_ATTEMPTS:
+                raise RuntimeError("OpenAI network error during run creation") from e
+            await asyncio.sleep(OPENAI_RETRY_DELAY)
+
     t0 = time.time()
     while True:
-        rr = client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run.id)
+        for attempt in range(1, OPENAI_RETRY_ATTEMPTS + 1):
+            try:
+                rr = client.beta.threads.runs.retrieve(
+                    thread_id=thread_id,
+                    run_id=run.id,
+                    timeout=OPENAI_TIMEOUT,
+                )
+                break
+            except (APIConnectionError, APITimeoutError) as e:
+                logger.warning(
+                    "Run retrieve failed (attempt %s/%s): %s",
+                    attempt,
+                    OPENAI_RETRY_ATTEMPTS,
+                    e,
+                )
+                if attempt == OPENAI_RETRY_ATTEMPTS:
+                    raise RuntimeError("OpenAI network error during run retrieval") from e
+                await asyncio.sleep(OPENAI_RETRY_DELAY)
+
         if rr.status in ("completed", "failed", "cancelled", "expired"):
             return rr
         if time.time() - t0 > timeout_s:
