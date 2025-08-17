@@ -804,11 +804,21 @@ async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if q.data.startswith("ch_"):
-        ch = int(q.data.split("_")[1])
+        match = re.match(r"^ch_(\d+)$", q.data)
+        if not match:
+            logger.warning("Chat %s sent malformed chapter callback %s", chat_id, q.data)
+            await q.message.chat.send_message("Unknown chapter")
+            return
+        try:
+            ch = int(match.group(1))
+        except ValueError:
+            logger.warning("Chat %s sent non-integer chapter %s", chat_id, match.group(1))
+            await q.message.chat.send_message("Unknown chapter")
+            return
         logger.info("Chat %s selected chapter %s", chat_id, ch)
         if ch not in CHAPTERS:
             logger.warning("Chat %s selected invalid chapter %s", chat_id, ch)
-            await q.message.chat.send_message("Unknown chapter.")
+            await q.message.chat.send_message("Unknown chapter")
             return
         db_set(chat_id, chapter=ch, dialogue_n=0, last_summary="")
         chapter_text = CHAPTERS[ch]
