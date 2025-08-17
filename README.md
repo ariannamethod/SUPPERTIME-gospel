@@ -6,7 +6,9 @@
 Suppertime Gospel is a Telegram Theatre that stages interactive gospel scenes using OpenAI's Assistants API.  Chapters of the narrative live in `docs/` and each character's persona lives in `heroes/`.  The bot lets you drop into any chapter and guide the conversation.
 
 ## Environment Variables
-Set the following variables before running the bot:
+Set the following variables before running the bot. They are validated at
+startup, and the bot will raise a `RuntimeError` if the required values are
+missing:
 
 - `TELEGRAM_TOKEN` – Telegram bot token (required)
 - `OPENAI_API_KEY` – OpenAI API key (required)

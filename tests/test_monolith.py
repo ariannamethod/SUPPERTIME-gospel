@@ -54,3 +54,12 @@ def test_parse_lines_block_format():
         ("Judas", "betrayal whispers"),
         ("Peter", "steadfast response"),
     ]
+
+
+def test_main_checks_env(monkeypatch):
+    import monolith
+
+    monkeypatch.setattr(monolith, "TELEGRAM_TOKEN", None)
+    monkeypatch.setattr(monolith.settings, "openai_api_key", None)
+    with pytest.raises(RuntimeError):
+        monolith.main()
