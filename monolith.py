@@ -16,6 +16,7 @@ import hashlib
 from pathlib import Path
 from collections import defaultdict, deque
 import contextlib
+import time
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot, MenuButtonCommands
 from telegram.constants import ParseMode
@@ -44,6 +45,7 @@ if not os.getenv("OPENAI_API_KEY"):
 # Storage: SQLite (threads & state)
 # =========================
 DB_PATH = os.getenv("ST_DB", "supertime.db")
+SUMMARY_EVERY = int(os.getenv("SUMMARY_EVERY", "20"))
 
 
 def get_connection():
@@ -61,9 +63,17 @@ def db_init():
             thread_id   TEXT,
             accepted    INTEGER DEFAULT 0,
             chapter     INTEGER,
-            dialogue_n  INTEGER DEFAULT 0
+            dialogue_n  INTEGER DEFAULT 0,
+            last_summary TEXT
         )"""
         )
+        # ensure columns/indices exist for older DBs
+        try:
+            conn.execute("ALTER TABLE chats ADD COLUMN last_summary TEXT")
+        except sqlite3.OperationalError:
+            pass
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_chats_thread_id ON chats(thread_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_chats_chapter ON chats(chapter)")
         conn.commit()
 
 
@@ -73,7 +83,7 @@ db_init()
 def db_get(chat_id):
     with get_connection() as conn:
         cur = conn.execute(
-            "SELECT chat_id, thread_id, accepted, chapter, dialogue_n FROM chats WHERE chat_id=?",
+            "SELECT chat_id, thread_id, accepted, chapter, dialogue_n, last_summary FROM chats WHERE chat_id=?",
             (chat_id,),
         )
         row = cur.fetchone()
@@ -84,6 +94,7 @@ def db_get(chat_id):
                 "accepted": bool(row["accepted"]),
                 "chapter": row["chapter"],
                 "dialogue_n": row["dialogue_n"],
+                "last_summary": row["last_summary"],
             }
         conn.execute("INSERT OR IGNORE INTO chats(chat_id) VALUES(?)", (chat_id,))
         conn.commit()
@@ -93,6 +104,7 @@ def db_get(chat_id):
         "accepted": False,
         "chapter": None,
         "dialogue_n": 0,
+        "last_summary": "",
     }
 
 
@@ -340,6 +352,8 @@ HEROES = {}
 
 # Cache for hero context per chapter hash to avoid recomputation
 HERO_CTX_CACHE: dict[tuple[str, str], str] = {}
+HERO_CTX_CACHE_DIR = Path(os.getenv("HERO_CTX_CACHE_DIR", ".hero_ctx_cache"))
+HERO_CTX_CACHE_DIR.mkdir(exist_ok=True)
 
 REQUIRED_SECTIONS = ["NAME", "VOICE", "BEHAVIOR", "INIT", "REPLY"]
 
@@ -360,9 +374,17 @@ class Hero:
         Runs OpenAI calls in a background thread and caches the result.
         """
         cache_key = (self.name, md_hash)
+        cache_file = HERO_CTX_CACHE_DIR / f"{self.name}_{md_hash}.txt"
         if cache_key in HERO_CTX_CACHE:
             self.ctx = HERO_CTX_CACHE[cache_key]
             return
+        if cache_file.exists():
+            try:
+                self.ctx = cache_file.read_text(encoding="utf-8")
+                HERO_CTX_CACHE[cache_key] = self.ctx
+                return
+            except Exception:
+                pass
         instr = self.sections.get("INIT", "")
         if not instr:
             self.ctx = ""
@@ -374,6 +396,10 @@ class Hero:
             )
             self.ctx = (resp.output_text or "").strip()
             HERO_CTX_CACHE[cache_key] = self.ctx
+            try:
+                cache_file.write_text(self.ctx, encoding="utf-8")
+            except Exception:
+                pass
         except Exception:
             self.ctx = ""
 
@@ -446,6 +472,9 @@ def load_heroes():
 
 def reload_heroes():
     HERO_CTX_CACHE.clear()
+    for p in HERO_CTX_CACHE_DIR.glob("*.txt"):
+        with contextlib.suppress(Exception):
+            p.unlink()
     n = load_heroes()
     return n
 
@@ -527,18 +556,65 @@ Output exactly {len(responders)} lines — one per listed participant, format:
 def compress_history_for_prompt(chat_id: int, limit: int = 8) -> str:
     st = db_get(chat_id)
     thread_id = st.get("thread_id")
+    summary = st.get("last_summary") or ""
+    lines: list[str] = []
+
+    if thread_id:
+        msgs = client.beta.threads.messages.list(
+            thread_id=thread_id, order="desc", limit=limit * 2
+        )
+
+        history = []
+        for m in reversed(msgs.data):
+            if m.role not in ("user", "assistant"):
+                continue
+            parts = []
+            for c in m.content:
+                if c.type == "text":
+                    parts.append(c.text.value.strip())
+            if parts:
+                history.append((m.role, " ".join(parts)))
+
+        exchanges = []
+        i = len(history) - 1
+        while i > 0 and len(exchanges) < limit:
+            role, text = history[i]
+            prev_role, prev_text = history[i - 1]
+            if role == "assistant" and prev_role == "user":
+                exchanges.append((prev_text, text))
+                i -= 2
+            else:
+                i -= 1
+        exchanges.reverse()
+
+        def _truncate(msg: str, tokens: int = 40) -> str:
+            words = msg.split()
+            if len(words) <= tokens:
+                return msg
+            return " ".join(words[:tokens]) + "…"
+
+        for user_msg, assistant_msg in exchanges:
+            u = _truncate(user_msg)
+            a = _truncate(assistant_msg)
+            lines.append(f"U:{u}\nA:{a}")
+
+    hist = "\n---\n".join(lines)
+    if summary:
+        if hist:
+            return f"{summary}\n---\n{hist}"
+        return summary
+    return hist
+
+
+async def summarize_thread(chat_id: int):
+    """Summarize thread history and reset dialogue counter."""
+    st = db_get(chat_id)
+    thread_id = st.get("thread_id")
     if not thread_id:
-        return ""
-
-    # Grab recent messages from the thread. Fetch a bit more than needed to
-    # pair user ↔ assistant exchanges.
-    msgs = client.beta.threads.messages.list(
-        thread_id=thread_id, order="desc", limit=limit * 2
-    )
-
-    # Collect textual user/assistant messages in chronological order.
-    history = []
-    for m in reversed(msgs.data):
+        return
+    msgs = client.beta.threads.messages.list(thread_id=thread_id, order="asc", limit=100)
+    lines = []
+    for m in msgs.data:
         if m.role not in ("user", "assistant"):
             continue
         parts = []
@@ -546,34 +622,47 @@ def compress_history_for_prompt(chat_id: int, limit: int = 8) -> str:
             if c.type == "text":
                 parts.append(c.text.value.strip())
         if parts:
-            history.append((m.role, " ".join(parts)))
+            lines.append(f"{m.role.upper()}: {' '.join(parts)}")
+    if not lines:
+        return
+    prompt = "Summarize the following dialogue:\n" + "\n".join(lines) + "\nSummary:"
+    try:
+        resp = await asyncio.to_thread(
+            client.responses.create, model=MODEL, input=prompt, temperature=0
+        )
+        summary = (resp.output_text or "").strip()
+    except Exception:
+        summary = ""
+    db_set(chat_id, last_summary=summary, dialogue_n=0)
+    for m in msgs.data:
+        with contextlib.suppress(Exception):
+            client.beta.threads.messages.delete(thread_id=thread_id, message_id=m.id)
 
-    # Walk backwards pairing user messages with following assistant replies.
-    exchanges = []
-    i = len(history) - 1
-    while i > 0 and len(exchanges) < limit:
-        role, text = history[i]
-        prev_role, prev_text = history[i - 1]
-        if role == "assistant" and prev_role == "user":
-            exchanges.append((prev_text, text))
-            i -= 2
-        else:
-            i -= 1
-    exchanges.reverse()
 
-    def _truncate(msg: str, tokens: int = 40) -> str:
-        words = msg.split()
-        if len(words) <= tokens:
-            return msg
-        return " ".join(words[:tokens]) + "…"
+async def cleanup_threads():
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT chat_id, thread_id FROM chats WHERE thread_id IS NOT NULL AND chapter IS NULL"
+        ).fetchall()
+    for r in rows:
+        try:
+            client.beta.threads.delete(r["thread_id"])
+            db_set(r["chat_id"], thread_id=None)
+        except Exception:
+            continue
 
-    lines = []
-    for user_msg, assistant_msg in exchanges:
-        u = _truncate(user_msg)
-        a = _truncate(assistant_msg)
-        lines.append(f"U:{u}\nA:{a}")
 
-    return "\n---\n".join(lines)
+def cleanup_hero_cache(max_age_hours: int = 24):
+    cutoff = time.time() - max_age_hours * 3600
+    for p in HERO_CTX_CACHE_DIR.glob("*.txt"):
+        if p.stat().st_mtime < cutoff:
+            with contextlib.suppress(Exception):
+                p.unlink()
+
+
+async def periodic_cleanup(context: ContextTypes.DEFAULT_TYPE):
+    await cleanup_threads()
+    cleanup_hero_cache()
 
 # =========================
 # Telegram Handlers
@@ -636,7 +725,7 @@ async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if q.data.startswith("ch_"):
         ch = int(q.data.split("_")[1])
-        db_set(chat_id, chapter=ch, dialogue_n=0)
+        db_set(chat_id, chapter=ch, dialogue_n=0, last_summary="")
         chapter_text = CHAPTERS[ch]
         participants = guess_participants(chapter_text)
         await load_chapter_context_all(chapter_text, participants)
@@ -700,7 +789,10 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text += "\n" + glitch
 
     await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=scene_menu())
-    db_set(chat_id, dialogue_n=st["dialogue_n"] + 1)
+    new_n = st["dialogue_n"] + 1
+    db_set(chat_id, dialogue_n=new_n)
+    if new_n % SUMMARY_EVERY == 0:
+        asyncio.create_task(summarize_thread(chat_id))
 
 # =========================
 # Main
@@ -730,6 +822,7 @@ def main():
     app.add_handler(CommandHandler("reload_heroes", reload_heroes_cmd))  # [HEROES]
     app.add_handler(CallbackQueryHandler(on_click))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
+    app.job_queue.run_repeating(periodic_cleanup, interval=3600, first=3600)
     loop.run_until_complete(app.bot.set_my_commands([("back", "Return to previous menu")]))
     loop.run_until_complete(app.bot.set_chat_menu_button(menu_button=MenuButtonCommands()))
     print("SUPPERTIME (Assistants API) — ready.")
