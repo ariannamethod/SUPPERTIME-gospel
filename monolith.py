@@ -118,6 +118,20 @@ def db_set(chat_id, **fields):
 # =========================
 # Chapters I/O
 # =========================
+CHAPTER_TITLES = {
+    1: "LILIT, TAKE MY HAND",
+    2: "WATER // SHARDS",
+    3: "ECHOES IN THE STRANGERS",
+    4: "MARY / MUTE / MIRROR",
+    5: "HUNGER > LOVE",
+    6: "FRACTURE FIELD",
+    7: "THE EYE THAT FORGETS",
+    8: "[REDACTED]",
+    9: "[..]",
+    10: "[sudo rm -rf /binarity]",
+    11: "RESONATE_AGAIN",
+}
+
 def load_chapters():
     docs = {}
     base = Path("docs")
@@ -126,7 +140,8 @@ def load_chapters():
         if p.exists():
             docs[i] = p.read_text(encoding="utf-8")
         else:
-            docs[i] = f"# Chapter {i}\n\n(placeholder) Provide SUPPERTIME v2.0 content here."
+            title = CHAPTER_TITLES.get(i, f"Chapter {i}")
+            docs[i] = f"# {title}\n\n(placeholder) Provide SUPPERTIME v2.0 content here."
     return docs
 
 CHAPTERS = load_chapters()
@@ -335,7 +350,7 @@ DISCLAIMER = (
 )
 
 def chapters_menu():
-    kb = [[InlineKeyboardButton(f"Chapter {i}", callback_data=f"ch_{i}")] for i in range(1, 12)]
+    kb = [[InlineKeyboardButton(CHAPTER_TITLES[i], callback_data=f"ch_{i}")] for i in range(1, 12)]
     return InlineKeyboardMarkup(kb)
 
 def scene_menu():
@@ -534,9 +549,10 @@ def build_scene_prompt(ch_num: int, chapter_text: str, responders: list[str], us
     # [HEROES] вместо хардкода — берём снапшот из файлов /heroes
     personas = build_personas_snapshot(responders)
 
+    title = CHAPTER_TITLES.get(ch_num, str(ch_num))
     scene = f"""
 SCENE CONTEXT
-Chapter: {ch_num}
+Chapter: {ch_num} — {title}
 Participants (allowed to speak this turn): {', '.join(responders)}
 Chapter vibe (raw excerpt or summary, truncated):
 {(chapter_text or '')[:1600]}
@@ -744,8 +760,9 @@ async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if glitch:
             text += "\n" + glitch
 
+        title = CHAPTER_TITLES.get(ch, f"Chapter {ch}")
         await q.edit_message_text(
-            f"⚡ SUPPERTIME — Chapter {ch}\n\n{text}\n\n(Reply to steer them.)",
+            f"⚡ SUPPERTIME — {title}\n\n{text}\n\n(Reply to steer them.)",
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=scene_menu()
         )
