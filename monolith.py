@@ -806,6 +806,10 @@ async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if q.data.startswith("ch_"):
         ch = int(q.data.split("_")[1])
         logger.info("Chat %s selected chapter %s", chat_id, ch)
+        if ch not in CHAPTERS:
+            logger.warning("Chat %s selected invalid chapter %s", chat_id, ch)
+            await q.message.chat.send_message("Unknown chapter.")
+            return
         db_set(chat_id, chapter=ch, dialogue_n=0, last_summary="")
         chapter_text = CHAPTERS[ch]
         participants = guess_participants(chapter_text)
