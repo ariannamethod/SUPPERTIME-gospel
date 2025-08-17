@@ -804,7 +804,19 @@ async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if q.data.startswith("ch_"):
-        ch = int(q.data.split("_")[1])
+        try:
+            ch = int(q.data.split("_")[1])
+        except ValueError:
+            logger.warning(
+                "Chat %s sent malformed chapter selection %s", chat_id, q.data
+            )
+            await q.message.chat.send_message("Unknown chapter.")
+            await q.answer()
+            try:
+                await q.message.delete()
+            except Exception:
+                pass
+            return
         logger.info("Chat %s selected chapter %s", chat_id, ch)
         if ch not in CHAPTERS:
             logger.warning("Chat %s selected invalid chapter %s", chat_id, ch)
