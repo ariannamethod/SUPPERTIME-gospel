@@ -839,7 +839,10 @@ def main():
     app.add_handler(CommandHandler("reload_heroes", reload_heroes_cmd))  # [HEROES]
     app.add_handler(CallbackQueryHandler(on_click))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
-    app.job_queue.run_repeating(periodic_cleanup, interval=3600, first=3600)
+    if app.job_queue:
+        app.job_queue.run_repeating(periodic_cleanup, interval=3600, first=3600)
+    else:
+        print("Job queue disabled; periodic cleanup skipped.")
     loop.run_until_complete(app.bot.set_my_commands([("back", "Return to previous menu")]))
     loop.run_until_complete(app.bot.set_chat_menu_button(menu_button=MenuButtonCommands()))
     print("SUPPERTIME (Assistants API) — ready.")
