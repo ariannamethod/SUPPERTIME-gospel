@@ -116,5 +116,5 @@ def test_menu_shows_chapters(monkeypatch):
     asyncio.run(monolith.menu_cmd(update, context))
     msg.reply_text.assert_awaited()
     args, kwargs = msg.reply_text.call_args
-    assert args[0] == "\u200b"
+    assert args[0] == "Pick a chapter:"
     assert isinstance(kwargs.get("reply_markup"), monolith.InlineKeyboardMarkup)
