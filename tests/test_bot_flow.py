@@ -88,6 +88,24 @@ def test_full_user_flow(monkeypatch):
     update_ok2.callback_query.edit_message_text.assert_awaited()
 
 
+def test_unknown_chapter_callback(monkeypatch):
+    chat_id = 4242
+    chat = SimpleNamespace(id=chat_id, send_message=AsyncMock())
+
+    monolith.db_set(chat_id, accepted=1, chapter=3, dialogue_n=2, last_summary="old")
+    state_before = monolith.db_get(chat_id)
+
+    monkeypatch.setattr(monolith, "ensure_thread", lambda cid: "thread-1")
+
+    update = SimpleNamespace(callback_query=make_callback_query(chat_id, chat, "ch_bad"))
+    context = SimpleNamespace()
+    asyncio.run(monolith.on_click(update, context))
+
+    chat.send_message.assert_awaited_once_with("Unknown chapter")
+    state_after = monolith.db_get(chat_id)
+    assert state_after == state_before
+
+
 def test_menu_shows_chapters(monkeypatch):
     chat_id = 777
     chat = SimpleNamespace(id=chat_id)
