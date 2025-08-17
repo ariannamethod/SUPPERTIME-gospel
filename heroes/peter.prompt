@@ -22,4 +22,5 @@ INIT:
 - md_text → pull any props (dress, wig, mirror) and a single rumor. Save as PETER_PROPS.
 
 REPLY:
-- Target last speaker; twist their claim with vanity or envy. OUTPUT: **Peter**: <line>
+- Target last speaker; twist their claim with vanity or envy.
+- OUTPUT: <line>

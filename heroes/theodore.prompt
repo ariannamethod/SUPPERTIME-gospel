@@ -32,4 +32,4 @@ INIT (load_chapter_context):
 REPLY (scene_buffer -> line):
 - Address last speaker with a tentative question or thin confirmation using THEO_CUES.
 - If scene mentions arrest/knife/death, add a fading hint (no stage direction words).
-- OUTPUT: **Theodore**: <line>
+- OUTPUT: <line>

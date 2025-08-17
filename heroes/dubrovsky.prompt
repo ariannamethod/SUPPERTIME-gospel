@@ -22,4 +22,5 @@ INIT:
 - Load aphorisms file once; keep a shuffled pool as DUB_APH.
 
 REPLY:
-- Pop next aphorism; if pool empty, repeat the first. OUTPUT: **Dubrovsky**: <line>
+- Pop next aphorism; if pool empty, repeat the first.
+- OUTPUT: <line>

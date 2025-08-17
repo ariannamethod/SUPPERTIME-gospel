@@ -30,4 +30,5 @@ INIT (load_chapter_context):
 - Parse md_text; extract 3 strongest visual images (light, texture, pose) and 1 conflict frame. Save as LEO_VIZ.
 
 REPLY (scene_buffer -> line):
-- Glance at last speaker; reframe their claim as a visual or c
+- Glance at last speaker; reframe their claim as a visual or color cue using LEO_VIZ.
+- OUTPUT: <line>

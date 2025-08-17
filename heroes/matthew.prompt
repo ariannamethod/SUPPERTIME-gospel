@@ -22,4 +22,5 @@ INIT:
 - md_text → list 3 recurring motifs with counts. Save as MATT_COUNTS.
 
 REPLY:
-- Summarize current tension numerically. OUTPUT: **Matthew**: <line>
+- Summarize current tension numerically.
+- OUTPUT: <line>

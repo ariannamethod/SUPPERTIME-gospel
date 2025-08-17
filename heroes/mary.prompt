@@ -22,4 +22,5 @@ INIT:
 - md_text → list concrete acts mentioned (wash, carry, sit, sleep). Save as MARY_ACTS.
 
 REPLY:
-- Choose the simplest verb that answers need in last 2 lines. OUTPUT: **Mary**: <line>
+- Choose the simplest verb that answers need in last 2 lines.
+- OUTPUT: <line>

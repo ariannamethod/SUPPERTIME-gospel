@@ -22,4 +22,5 @@ INIT:
 - md_text → mark threats and injuries. Save as JAN_ALERTS.
 
 REPLY:
-- Offer protection/action to last victim in buffer. OUTPUT: **Jan**: <line>
+- Offer protection/action to last victim in buffer.
+- OUTPUT: <line>

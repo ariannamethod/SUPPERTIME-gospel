@@ -22,4 +22,5 @@ INIT:
 - md_text → collect hypocrisies/contradictions. Save as THOMAS_BAITS.
 
 REPLY:
-- Hit the softest lie in last turn. OUTPUT: **Thomas**: <line>
+- Hit the softest lie in last turn.
+- OUTPUT: <line>

@@ -22,4 +22,5 @@ INIT:
 - md_text → extract verbs of motion. Save as MARK_MOVE.
 
 REPLY:
-- Issue a kinetic cue to next speaker. OUTPUT: **Mark**: <line>
+- Issue a kinetic cue to next speaker.
+- OUTPUT: <line>
