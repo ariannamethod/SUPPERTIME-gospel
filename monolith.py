@@ -308,13 +308,17 @@ Hard rules:
 - If user speaks, react to them inside the scene; keep atmosphere of the selected chapter.
 """
     logger.info("Creating OpenAI assistant")
-    asst = client.beta.assistants.create(
-        model=MODEL,
-        name="SUPPERTIME Orchestrator",
-        instructions=instructions,
-        tools=[],
-        temperature=TEMPERATURE,
-    )
+    try:
+        asst = client.beta.assistants.create(
+            model=MODEL,
+            name="SUPPERTIME Orchestrator",
+            instructions=instructions,
+            tools=[],
+            temperature=TEMPERATURE,
+        )
+    except (APIConnectionError, APITimeoutError) as e:
+        logger.warning("Assistant creation failed: %s", e)
+        return ""
     ASSISTANT_ID_PATH.write_text(asst.id)
     return asst.id
 
@@ -890,7 +894,7 @@ async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await q.message.delete()
         await send_hero_lines(q.message.chat, text, context)
-        if glitch:
+        if glitch and hasattr(q.message.chat, "send_message"):
             await q.message.chat.send_message(glitch, parse_mode=ParseMode.MARKDOWN)
         return
 
