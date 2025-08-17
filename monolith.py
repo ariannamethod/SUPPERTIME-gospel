@@ -735,7 +735,7 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def menu_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("\u200b", reply_markup=chapters_menu())
+    await update.message.reply_text("Pick a chapter:", reply_markup=chapters_menu())
 
 async def reload_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     n = reload_chapters()
@@ -800,7 +800,7 @@ async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if q.data == "ok":
         db_set(chat_id, accepted=1)
-        await q.edit_message_text("\u200b", reply_markup=chapters_menu())
+        await q.edit_message_text("Pick a chapter:", reply_markup=chapters_menu())
         return
 
     if q.data.startswith("ch_"):
