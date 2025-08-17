@@ -155,15 +155,15 @@ CHAPTER_TITLES = {
 }
 
 def load_chapters():
-    docs = {}
+    docs: dict[int, str] = {}
     base = Path("docs")
-    for i in range(1, 12):
-        p = base / f"chapter_{i:02d}.md"
-        if p.exists():
-            docs[i] = p.read_text(encoding="utf-8")
-        else:
-            title = CHAPTER_TITLES.get(i, f"Chapter {i}")
-            docs[i] = f"# {title}\n\n(placeholder) Provide SUPPERTIME v2.0 content here."
+    for path in sorted(base.glob("chapter_*.md")):
+        match = re.match(r"chapter_(\d+)\.md", path.name)
+        if match:
+            i = int(match.group(1))
+            docs[i] = path.read_text(encoding="utf-8")
+    for i, title in CHAPTER_TITLES.items():
+        docs.setdefault(i, f"# {title}\n\n(placeholder) Provide SUPPERTIME v2.0 content here.")
     return docs
 
 CHAPTERS = load_chapters()
@@ -411,7 +411,10 @@ DISCLAIMER = (
 )
 
 def chapters_menu():
-    kb = [[InlineKeyboardButton(CHAPTER_TITLES[i], callback_data=f"ch_{i}")] for i in range(1, 12)]
+    kb = [
+        [InlineKeyboardButton(CHAPTER_TITLES.get(i, f"Chapter {i}"), callback_data=f"ch_{i}")]
+        for i in sorted(CHAPTERS)
+    ]
     return InlineKeyboardMarkup(kb)
 
 # =========================
