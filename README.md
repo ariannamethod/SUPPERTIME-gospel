@@ -13,7 +13,7 @@ missing:
 - `TELEGRAM_TOKEN` – Telegram bot token (required)
 - `OPENAI_API_KEY` – OpenAI API key (required)
 - `OPENAI_MODEL` – OpenAI model name (optional, defaults to `gpt-4.1`)
-- `OPENAI_TEMPERATURE` – sampling temperature (optional, defaults to `1.2`)
+- `OPENAI_TEMPERATURE` – sampling temperature (optional, defaults to `1.4`)
 - `ST_DB` – path to the SQLite database (optional)
 - `WEBHOOK_URL` – full webhook URL (optional). If set, the bot listens via webhook on `PORT` (default `8443`) instead of polling and clears any previous webhook on startup.
 
