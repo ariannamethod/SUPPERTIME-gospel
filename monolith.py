@@ -353,11 +353,6 @@ def chapters_menu():
     kb = [[InlineKeyboardButton(CHAPTER_TITLES[i], callback_data=f"ch_{i}")] for i in range(1, 12)]
     return InlineKeyboardMarkup(kb)
 
-def scene_menu():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("/back", callback_data="back_chapters")]
-    ])
-
 # =========================
 # [HEROES] Persona files loader
 # =========================
@@ -719,6 +714,19 @@ async def reload_heroes_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await load_chapter_context_all(chapter_text, participants)
     await update.message.reply_text(f"Heroes reloaded: {n} persona files.")
 
+
+def parse_lines(text: str):
+    pattern = re.compile(r"^\*\*(.+?)\*\*:\s*(.*)")
+    for line in text.splitlines():
+        m = pattern.match(line.strip())
+        if m:
+            yield m.group(1), m.group(2)
+
+
+async def send_hero_lines(chat, text: str):
+    for name, line in parse_lines(text):
+        await chat.send_message(f"**{name}**\n{line}", parse_mode=ParseMode.MARKDOWN)
+
 async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
@@ -752,20 +760,15 @@ async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         scene_prompt = build_scene_prompt(ch, chapter_text, responders, "(enters the room)", compress_history_for_prompt(chat_id))
         thread_add_message(thread_id, "user", scene_prompt)
         await run_and_wait(thread_id)
-
         text = thread_last_text(thread_id).strip()
         if not text:
             text = "**Judas**: (silence creaks)"
         glitch = MARKOV.glitch()
-        if glitch:
-            text += "\n" + glitch
 
-        title = CHAPTER_TITLES.get(ch, f"Chapter {ch}")
-        await q.edit_message_text(
-            f"⚡ SUPPERTIME — {title}\n\n{text}\n\n(Reply to steer them.)",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=scene_menu()
-        )
+        await q.message.delete()
+        await send_hero_lines(q.message.chat, text)
+        if glitch:
+            await q.message.chat.send_message(glitch, parse_mode=ParseMode.MARKDOWN)
         return
 
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -802,10 +805,10 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not text:
         text = "**Judas**: ..."
     glitch = MARKOV.glitch()
-    if glitch:
-        text += "\n" + glitch
 
-    await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=scene_menu())
+    await send_hero_lines(update.message.chat, text)
+    if glitch:
+        await update.message.chat.send_message(glitch, parse_mode=ParseMode.MARKDOWN)
     new_n = st["dialogue_n"] + 1
     db_set(chat_id, dialogue_n=new_n)
     if new_n % SUMMARY_EVERY == 0:
