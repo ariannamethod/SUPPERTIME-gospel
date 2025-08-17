@@ -12,6 +12,7 @@ import sqlite3
 import random
 import asyncio
 import hashlib
+import os
 from pathlib import Path
 from collections import defaultdict, deque
 import contextlib
@@ -849,7 +850,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Main
 # =========================
 async def reset_updates():
-    """Terminate any other long-polling sessions for this bot."""
+    """Remove existing webhooks and terminate other sessions for this bot."""
     bot = Bot(token=TELEGRAM_TOKEN)
     try:
         with contextlib.suppress(RetryAfter):
@@ -880,7 +881,22 @@ def main():
     loop.run_until_complete(app.bot.set_my_commands([("back", "Return to previous menu")]))
     loop.run_until_complete(app.bot.set_chat_menu_button(menu_button=MenuButtonCommands()))
     print("SUPPERTIME (Assistants API) — ready.")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    webhook_url = os.getenv("WEBHOOK_URL")
+    if webhook_url:
+        from urllib.parse import urlparse
+
+        parsed = urlparse(webhook_url)
+        url_path = parsed.path.lstrip("/") or ""
+        port = parsed.port or int(os.getenv("PORT", "8443"))
+        app.run_webhook(
+            listen="0.0.0.0",
+            port=port,
+            url_path=url_path,
+            webhook_url=webhook_url,
+            allowed_updates=Update.ALL_TYPES,
+        )
+    else:
+        app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
     main()
