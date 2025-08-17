@@ -741,9 +741,6 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def menu_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Choose a chapter:", reply_markup=chapters_menu())
 
-async def back_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Choose a chapter:", reply_markup=chapters_menu())
-
 async def reload_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     n = reload_chapters()
     await update.message.reply_text(f"Chapters reloaded: {n} files.")
@@ -808,10 +805,6 @@ async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if q.data == "ok":
         db_set(chat_id, accepted=1)
         await q.edit_message_text("Choose a chapter to drop into the running dialogue:", reply_markup=chapters_menu())
-        return
-
-    if q.data == "back_chapters":
-        await q.edit_message_text("Choose a chapter:", reply_markup=chapters_menu())
         return
 
     if q.data.startswith("ch_"):
@@ -907,7 +900,6 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("menu", menu_cmd))
-    app.add_handler(CommandHandler("back", back_cmd))
     app.add_handler(CommandHandler("reload", reload_cmd))
     app.add_handler(CommandHandler("reload_heroes", reload_heroes_cmd))  # [HEROES]
     app.add_handler(CallbackQueryHandler(on_click))
@@ -916,7 +908,7 @@ def main():
         app.job_queue.run_repeating(periodic_cleanup, interval=3600, first=3600)
     else:
         print("Job queue disabled; periodic cleanup skipped.")
-    loop.run_until_complete(app.bot.set_my_commands([("back", "Return to previous menu")]))
+    loop.run_until_complete(app.bot.set_my_commands([("menu", "Choose a chapter")]))
     loop.run_until_complete(app.bot.set_chat_menu_button(menu_button=MenuButtonCommands()))
     print("SUPPERTIME (Assistants API) — ready.")
     webhook_url = os.getenv("WEBHOOK_URL")
