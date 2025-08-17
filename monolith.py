@@ -16,10 +16,8 @@ from pathlib import Path
 from collections import defaultdict, deque
 import contextlib
 import time
-import logging
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+from logger import logger
 
 from config import settings
 
@@ -411,7 +409,12 @@ class Hero:
                 HERO_CTX_CACHE[cache_key] = self.ctx
                 return
             except (OSError, UnicodeDecodeError) as e:
-                logger.exception("Failed to read hero cache %s: %s", cache_file, e)
+                logger.exception(
+                    "Failed to read hero cache for %s from %s: %s",
+                    self.name,
+                    cache_file,
+                    e,
+                )
         instr = self.sections.get("INIT", "")
         if not instr:
             self.ctx = ""
@@ -427,9 +430,19 @@ class Hero:
             try:
                 cache_file.write_text(self.ctx, encoding="utf-8")
             except (OSError, UnicodeEncodeError) as e:
-                logger.exception("Failed to write hero cache %s: %s", cache_file, e)
+                logger.exception(
+                    "Failed to write hero cache for %s to %s: %s",
+                    self.name,
+                    cache_file,
+                    e,
+                )
         except Exception as e:
-            logger.exception("OpenAI context load failed for %s: %s", self.name, e)
+            logger.exception(
+                "OpenAI context load failed for %s (hash %s): %s",
+                self.name,
+                md_hash,
+                e,
+            )
             self.ctx = ""
 
 
@@ -496,7 +509,12 @@ def load_heroes():
                 HEROES[name] = Hero(name, sections, raw)
                 count += 1
         except (OSError, UnicodeDecodeError) as e:
-            logger.exception("Failed to load hero file %s: %s", fp, e)
+            logger.exception(
+                "Failed to load hero %s from %s: %s",
+                name,
+                fp,
+                e,
+            )
             continue
     return count
 
@@ -791,7 +809,7 @@ async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await run_and_wait(thread_id)
         text = thread_last_text(thread_id).strip()
         if not text:
-            text = "**Judas**: (silence creaks)"
+            text = "\n".join(f"**{r}**: (тишина)" for r in responders)
         glitch = MARKOV.glitch()
 
         await q.message.delete()
@@ -834,7 +852,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = thread_last_text(thread_id).strip()
     if not text:
-        text = "**Judas**: ..."
+        text = "\n".join(f"**{r}**: (тишина)" for r in responders)
     glitch = MARKOV.glitch()
 
     await send_hero_lines(update.message.chat, text, context)
