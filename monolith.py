@@ -579,8 +579,9 @@ User just wrote: {user_text or '(silence)'}
 PERSONAS SNAPSHOT (from /heroes files)
 {personas}
 
-Output exactly {len(responders)} lines — one per listed participant, format:
-**Character**: line
+Output exactly {len(responders)} blocks — one per listed participant. For each block:
+*Character*
+dialogue line (no leading colon)
 """
     return scene.strip()
 
@@ -740,11 +741,29 @@ async def reload_heroes_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def parse_lines(text: str):
-    pattern = re.compile(r"^\*\*(.+?)\*\*:\s*(.*)")
-    for line in text.splitlines():
-        m = pattern.match(line.strip())
-        if m:
-            yield m.group(1), m.group(2)
+    name_line = re.compile(r"^\*{1,2}(.+?)\*{1,2}$")
+    inline = re.compile(r"^\*{1,2}(.+?)\*{1,2}:\s*(.*)")
+    current_name = None
+    buffer: list[str] = []
+    for raw in text.splitlines():
+        line = raw.rstrip()
+        m_inline = inline.match(line.strip())
+        if m_inline:
+            if current_name and buffer:
+                yield current_name, "\n".join(buffer).strip()
+            yield m_inline.group(1), m_inline.group(2)
+            current_name, buffer = None, []
+            continue
+        m_name = name_line.match(line.strip())
+        if m_name:
+            if current_name and buffer:
+                yield current_name, "\n".join(buffer).strip()
+            current_name = m_name.group(1)
+            buffer = []
+        elif current_name is not None:
+            buffer.append(line)
+    if current_name and buffer:
+        yield current_name, "\n".join(buffer).strip()
 
 
 async def send_hero_lines(chat, text: str, context: ContextTypes.DEFAULT_TYPE):
