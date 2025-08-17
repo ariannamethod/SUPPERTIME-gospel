@@ -42,10 +42,6 @@ except ImportError as e:
 MODEL = settings.openai_model
 TEMPERATURE = settings.openai_temperature
 TELEGRAM_TOKEN = settings.telegram_token
-if not TELEGRAM_TOKEN:
-    raise RuntimeError("Set TELEGRAM_TOKEN env var")
-if not settings.openai_api_key:
-    raise RuntimeError("Set OPENAI_API_KEY env var")
 
 # =========================
 # Storage: SQLite (threads & state)
@@ -893,6 +889,10 @@ async def reset_updates():
 
 
 def main():
+    if not TELEGRAM_TOKEN:
+        raise RuntimeError("Set TELEGRAM_TOKEN env var")
+    if not settings.openai_api_key:
+        raise RuntimeError("Set OPENAI_API_KEY env var")
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     loop.run_until_complete(reset_updates())

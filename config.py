@@ -25,9 +25,3 @@ class Settings:
 
 
 settings = Settings()
-
-if not settings.telegram_token:
-    raise RuntimeError("Set TELEGRAM_TOKEN env var")
-
-if not settings.openai_api_key:
-    raise RuntimeError("Set OPENAI_API_KEY env var")
