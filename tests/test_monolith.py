@@ -1,4 +1,5 @@
 import os
+
 import pytest
 
 # Prevent network calls during import
@@ -20,7 +21,12 @@ def test_guess_participants_regex_detection():
 def test_guess_participants_default():
     chapter = "No known names here."
     assert guess_participants(chapter) == [
-        "Judas", "Yeshua", "Peter", "Mary", "Jan", "Thomas"
+        "Judas",
+        "Yeshua",
+        "Peter",
+        "Mary",
+        "Jan",
+        "Thomas",
     ]
 
 

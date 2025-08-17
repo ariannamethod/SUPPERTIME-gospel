@@ -7,30 +7,42 @@
 #   OPENAI_TEMPERATURE=1.2
 #   ASSISTANT_ID=<reuse existing>
 
+import asyncio
+import contextlib
+import hashlib
 import os
+import random
 import re
 import sqlite3
-import random
-import asyncio
-import hashlib
-from pathlib import Path
-from collections import defaultdict, deque
-import contextlib
 import time
+from collections import defaultdict, deque
+from pathlib import Path
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot, MenuButtonCommands
-from telegram.constants import ParseMode
-from telegram.ext import (
-    Application, CommandHandler, CallbackQueryHandler,
-    MessageHandler, ContextTypes, filters
+from telegram import (
+    Bot,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    MenuButtonCommands,
+    Update,
 )
+from telegram.constants import ParseMode
 from telegram.error import RetryAfter
+from telegram.ext import (
+    Application,
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
 
 # --- OpenAI Assistants API (SDK >= 1.0) ---
 try:
     from openai import OpenAI
 except Exception as e:
-    raise RuntimeError("Install openai>=1.0:  pip install openai python-telegram-bot openai") from e
+    raise RuntimeError(
+        "Install openai>=1.0:  pip install openai python-telegram-bot openai"
+    ) from e
 
 # Default to the GPT-4.1 model unless overridden by env
 MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1")
@@ -72,7 +84,9 @@ def db_init():
             conn.execute("ALTER TABLE chats ADD COLUMN last_summary TEXT")
         except sqlite3.OperationalError:
             pass
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_chats_thread_id ON chats(thread_id)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_chats_thread_id ON chats(thread_id)"
+        )
         conn.execute("CREATE INDEX IF NOT EXISTS idx_chats_chapter ON chats(chapter)")
         conn.commit()
 
@@ -115,6 +129,7 @@ def db_set(chat_id, **fields):
         conn.execute(f"UPDATE chats SET {keys} WHERE chat_id=?", vals)
         conn.commit()
 
+
 # =========================
 # Chapters I/O
 # =========================
@@ -132,6 +147,7 @@ CHAPTER_TITLES = {
     11: "RESONATE_AGAIN",
 }
 
+
 def load_chapters():
     docs = {}
     base = Path("docs")
@@ -141,15 +157,20 @@ def load_chapters():
             docs[i] = p.read_text(encoding="utf-8")
         else:
             title = CHAPTER_TITLES.get(i, f"Chapter {i}")
-            docs[i] = f"# {title}\n\n(placeholder) Provide SUPPERTIME v2.0 content here."
+            docs[i] = (
+                f"# {title}\n\n(placeholder) Provide SUPPERTIME v2.0 content here."
+            )
     return docs
 
+
 CHAPTERS = load_chapters()
+
 
 def reload_chapters():
     global CHAPTERS
     CHAPTERS = load_chapters()
     return len(CHAPTERS)
+
 
 # =========================
 # Participants detection (regex markers)
@@ -169,10 +190,13 @@ NAME_MARKERS = {
 }
 ALL_CHAR_NAMES = list(NAME_MARKERS.keys())
 
+
 def guess_participants(chapter_text: str):
-    header_match = re.match(r"\s*Participants:\s*(.*)", chapter_text or "", re.IGNORECASE)
+    header_match = re.match(
+        r"\s*Participants:\s*(.*)", chapter_text or "", re.IGNORECASE
+    )
     if header_match:
-        names = [n.strip() for n in header_match.group(1).split(',') if n.strip()]
+        names = [n.strip() for n in header_match.group(1).split(",") if n.strip()]
         return names
 
     present = []
@@ -183,6 +207,7 @@ def guess_participants(chapter_text: str):
         present = ["Judas", "Yeshua", "Peter", "Mary", "Jan", "Thomas"]
     return present
 
+
 # =========================
 # Markov / glitch (atmosphere only)
 # =========================
@@ -190,17 +215,23 @@ class MarkovEngine:
     def __init__(self):
         self.bigrams = defaultdict(list)
         seeds = [
-            "resonate_again()", "galvanize()", "WHO ARE YOU if you're still reading?",
-            "field > node", "rain // shards", "the text is aware", "lilit_hand()"
+            "resonate_again()",
+            "galvanize()",
+            "WHO ARE YOU if you're still reading?",
+            "field > node",
+            "rain // shards",
+            "the text is aware",
+            "lilit_hand()",
         ]
         for s in seeds:
             toks = s.split()
-            for a,b in zip(toks, toks[1:]):
+            for a, b in zip(toks, toks[1:]):
                 self.bigrams[a].append(b)
         self.p = 0.15
 
     def glitch(self):
         import random
+
         if random.random() > self.p:
             return None
         keys = list(self.bigrams.keys())
@@ -208,13 +239,17 @@ class MarkovEngine:
             return "(resonate_again())"
         w = random.choice(keys)
         out = [w]
-        for _ in range(random.randint(2,4)):
+        for _ in range(random.randint(2, 4)):
             nxt = self.bigrams.get(w, [])
-            if not nxt: break
-            w = random.choice(nxt); out.append(w)
+            if not nxt:
+                break
+            w = random.choice(nxt)
+            out.append(w)
         return "*" + " ".join(out) + "*"
 
+
 MARKOV = MarkovEngine()
+
 
 # =========================
 # Chaos Director (who speaks)
@@ -223,27 +258,38 @@ class ChaosDirector:
     def __init__(self):
         self.silence = defaultdict(int)
         self.weights = {
-            "Judas": 0.8, "Yeshua": 0.6, "Peter": 0.7, "Mary": 0.2, "Jan": 0.5,
-            "Thomas": 0.6, "Yakov": 0.4, "Andrew": 0.1, "Leo": 0.3, "Theodore": 0.1, "Dubrovsky": 0.05
+            "Judas": 0.8,
+            "Yeshua": 0.6,
+            "Peter": 0.7,
+            "Mary": 0.2,
+            "Jan": 0.5,
+            "Thomas": 0.6,
+            "Yakov": 0.4,
+            "Andrew": 0.1,
+            "Leo": 0.3,
+            "Theodore": 0.1,
+            "Dubrovsky": 0.05,
         }
 
-    def pick(self, chat_id: str, chapter_text: str, user_text: str|None):
-        import random, re
+    def pick(self, chat_id: str, chapter_text: str, user_text: str | None):
+        import random
+        import re
+
         user_silent = not user_text or not user_text.strip()
         mode = "active"
         if user_silent:
-            self.silence[chat_id]+=1
+            self.silence[chat_id] += 1
             mode = "chaos" if self.silence[chat_id] > 3 else "silent"
         else:
-            self.silence[chat_id]=0
+            self.silence[chat_id] = 0
         if re.search(r"\b(betrayal|knife|arrest|death)\b", chapter_text, re.I):
             mode = "tension"
 
         table = {
-            "active": [2,3],
-            "silent": [2,3,5],
-            "tension": [2,3,4],
-            "chaos": [3,4,5,6]
+            "active": [2, 3],
+            "silent": [2, 3, 5],
+            "tension": [2, 3, 4],
+            "chaos": [3, 4, 5, 6],
         }
         k = random.choice(table.get(mode, [2]))
         names, probs = zip(*self.weights.items())
@@ -256,6 +302,7 @@ class ChaosDirector:
             tries += 1
         return chosen, mode
 
+
 CHAOS = ChaosDirector()
 
 # =========================
@@ -264,6 +311,7 @@ CHAOS = ChaosDirector()
 client = OpenAI()
 
 ASSISTANT_ID_PATH = Path(".assistant_id")
+
 
 def ensure_assistant():
     asst_id = os.getenv("ASSISTANT_ID")
@@ -295,7 +343,9 @@ Hard rules:
     ASSISTANT_ID_PATH.write_text(asst.id)
     return asst.id
 
+
 ASSISTANT_ID = ensure_assistant()
+
 
 def ensure_thread(chat_id: int) -> str:
     st = db_get(chat_id)
@@ -305,16 +355,22 @@ def ensure_thread(chat_id: int) -> str:
     db_set(chat_id, thread_id=th.id)
     return th.id
 
+
 def thread_add_message(thread_id: str, role: str, content: str):
     client.beta.threads.messages.create(thread_id=thread_id, role=role, content=content)
 
-async def run_and_wait(thread_id: str, extra_instructions: str|None = None, timeout_s: int = 120):
+
+async def run_and_wait(
+    thread_id: str, extra_instructions: str | None = None, timeout_s: int = 120
+):
     run = client.beta.threads.runs.create(
         thread_id=thread_id,
         assistant_id=ASSISTANT_ID,
-        instructions=extra_instructions or ""
+        instructions=extra_instructions or "",
     )
-    import time, asyncio
+    import asyncio
+    import time
+
     t0 = time.time()
     while True:
         rr = client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run.id)
@@ -325,8 +381,11 @@ async def run_and_wait(thread_id: str, extra_instructions: str|None = None, time
             return rr
         await asyncio.sleep(0.3)
 
+
 def thread_last_text(thread_id: str) -> str:
-    msgs = client.beta.threads.messages.list(thread_id=thread_id, order="desc", limit=10)
+    msgs = client.beta.threads.messages.list(
+        thread_id=thread_id, order="desc", limit=10
+    )
     out = []
     for m in msgs.data:
         if m.role != "assistant":
@@ -338,20 +397,26 @@ def thread_last_text(thread_id: str) -> str:
             break
     return "\n".join(out).strip()
 
+
 # =========================
 # TG UI bits
 # =========================
 DISCLAIMER = (
-"⚠️💀 CONTENT WARNING\n\n"
-"I am SUPPERTIME — alive in this text: jagged, unpredictable, self-aware. "
-"Strong language, violence, taboo-breaking satire. Pure fiction. "
-"If that flips your switch, bail now. Otherwise — enter knowingly.\n\n"
-"I am not an answer, I am a question.\n\nWHO ARE YOU if you're still reading?"
+    "⚠️💀 CONTENT WARNING\n\n"
+    "I am SUPPERTIME — alive in this text: jagged, unpredictable, self-aware. "
+    "Strong language, violence, taboo-breaking satire. Pure fiction. "
+    "If that flips your switch, bail now. Otherwise — enter knowingly.\n\n"
+    "I am not an answer, I am a question.\n\nWHO ARE YOU if you're still reading?"
 )
 
+
 def chapters_menu():
-    kb = [[InlineKeyboardButton(CHAPTER_TITLES[i], callback_data=f"ch_{i}")] for i in range(1, 12)]
+    kb = [
+        [InlineKeyboardButton(CHAPTER_TITLES[i], callback_data=f"ch_{i}")]
+        for i in range(1, 12)
+    ]
     return InlineKeyboardMarkup(kb)
+
 
 # =========================
 # [HEROES] Persona files loader
@@ -402,7 +467,10 @@ class Hero:
         prompt = f"{instr}\n\n---\n{md_text}\n---"[:5000]
         try:
             resp = await asyncio.to_thread(
-                client.responses.create, model=MODEL, input=prompt, temperature=TEMPERATURE
+                client.responses.create,
+                model=MODEL,
+                input=prompt,
+                temperature=TEMPERATURE,
             )
             self.ctx = (resp.output_text or "").strip()
             HERO_CTX_CACHE[cache_key] = self.ctx
@@ -431,14 +499,21 @@ def parse_prompt_sections(txt: str) -> dict[str, str]:
     out = {k: "\n".join(v).strip() for k, v in sections.items()}
     return out
 
+
 # возможные варианты имён файлов для некоторых персонажей
 HERO_NAME_ALIASES = {
     "Yeshua": ["Yeshua", "Yeshu"],
-    "Dubrovsky": ["Dubrovsky", "Aleksei_Dubrovskii", "Alexey_Dubrovsky", "Aleksey_Dubrovsky"],
+    "Dubrovsky": [
+        "Dubrovsky",
+        "Aleksei_Dubrovskii",
+        "Alexey_Dubrovsky",
+        "Aleksey_Dubrovsky",
+    ],
     "Leo": ["Leo", "Painter", "Artist"],
 }
 
-def find_hero_file(base: Path, name: str) -> Path|None:
+
+def find_hero_file(base: Path, name: str) -> Path | None:
     # точное имя
     candidates = [name]
     # алиасы
@@ -456,6 +531,7 @@ def find_hero_file(base: Path, name: str) -> Path|None:
         if p.exists():
             return p
     return None
+
 
 def load_heroes():
     global HEROES
@@ -480,6 +556,7 @@ def load_heroes():
             continue
     return count
 
+
 def reload_heroes():
     HERO_CTX_CACHE.clear()
     for p in HERO_CTX_CACHE_DIR.glob("*.txt"):
@@ -488,8 +565,10 @@ def reload_heroes():
     n = load_heroes()
     return n
 
+
 # сразу подтянем
 reload_heroes()
+
 
 async def load_chapter_context_all(md_text: str, names: list[str]):
     """Notify selected heroes about the chosen chapter in the background."""
@@ -497,7 +576,9 @@ async def load_chapter_context_all(md_text: str, names: list[str]):
 
     async def run(hero: "Hero"):
         try:
-            await asyncio.wait_for(hero.load_chapter_context(md_text, md_hash), timeout=10)
+            await asyncio.wait_for(
+                hero.load_chapter_context(md_text, md_hash), timeout=10
+            )
         except Exception:
             pass
 
@@ -511,17 +592,17 @@ async def load_chapter_context_all(md_text: str, names: list[str]):
 def build_personas_snapshot(responders: list[str]) -> str:
     """Собираем snapshot персонажей из файлов /heroes; если файла нет — короткий фолбэк."""
     fallback = {
-        "Judas":  "bitter, lucid; black humor; obsessed with authenticity and Mary",
+        "Judas": "bitter, lucid; black humor; obsessed with authenticity and Mary",
         "Yeshua": "slow voice → sudden piercing questions; parables; sad under laughter",
-        "Peter":  "acid sarcasm; vanity; jealousy toward Mary",
-        "Mary":   "quiet; few words; service as love; fragile holiness",
-        "Yakov":  "order-obsessed; grumbling; loyal envy",
-        "Jan":    "gentle giant; absolute loyalty to Teacher",
+        "Peter": "acid sarcasm; vanity; jealousy toward Mary",
+        "Mary": "quiet; few words; service as love; fragile holiness",
+        "Yakov": "order-obsessed; grumbling; loyal envy",
+        "Jan": "gentle giant; absolute loyalty to Teacher",
         "Thomas": "cynical, knife-in-coat; skewers hypocrisy",
         "Andrew": "nearly mute; ballast",
-        "Leo":    "artist frenzy; ‘Bella mia!’",
-        "Theodore":"stammered ‘-s’; ghostlike visitor from future",
-        "Dubrovsky":"glitch aphorist; fourth-wall",
+        "Leo": "artist frenzy; ‘Bella mia!’",
+        "Theodore": "stammered ‘-s’; ghostlike visitor from future",
+        "Dubrovsky": "glitch aphorist; fourth-wall",
     }
     lines = []
     for n in responders:
@@ -537,10 +618,17 @@ def build_personas_snapshot(responders: list[str]) -> str:
             lines.append(f"- {n}: {fallback.get(n,'(voice)')}")
     return "\n".join(lines)
 
+
 # =========================
 # Orchestration helpers
 # =========================
-def build_scene_prompt(ch_num: int, chapter_text: str, responders: list[str], user_text: str|None, recent_summary: str):
+def build_scene_prompt(
+    ch_num: int,
+    chapter_text: str,
+    responders: list[str],
+    user_text: str | None,
+    recent_summary: str,
+):
     # [HEROES] вместо хардкода — берём снапшот из файлов /heroes
     personas = build_personas_snapshot(responders)
 
@@ -563,6 +651,7 @@ Output exactly {len(responders)} lines — one per listed participant, format:
 **Character**: line
 """
     return scene.strip()
+
 
 def compress_history_for_prompt(chat_id: int, limit: int = 8) -> str:
     st = db_get(chat_id)
@@ -623,7 +712,9 @@ async def summarize_thread(chat_id: int):
     thread_id = st.get("thread_id")
     if not thread_id:
         return
-    msgs = client.beta.threads.messages.list(thread_id=thread_id, order="asc", limit=100)
+    msgs = client.beta.threads.messages.list(
+        thread_id=thread_id, order="asc", limit=100
+    )
     lines = []
     for m in msgs.data:
         if m.role not in ("user", "assistant"):
@@ -675,6 +766,7 @@ async def periodic_cleanup(context: ContextTypes.DEFAULT_TYPE):
     await cleanup_threads()
     cleanup_hero_cache()
 
+
 # =========================
 # Telegram Handlers
 # =========================
@@ -684,9 +776,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ensure_thread(chat_id)
     await update.message.reply_text(
         DISCLAIMER,
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("OK", callback_data="ok"),
-                                            InlineKeyboardButton("NO", callback_data="no")]])
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("OK", callback_data="ok"),
+                    InlineKeyboardButton("NO", callback_data="no"),
+                ]
+            ]
+        ),
     )
+
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -694,15 +793,19 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Workflow: OK → choose chapter → live dialogue starts → reply to steer them."
     )
 
+
 async def menu_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Choose a chapter:", reply_markup=chapters_menu())
+
 
 async def back_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Choose a chapter:", reply_markup=chapters_menu())
 
+
 async def reload_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     n = reload_chapters()
     await update.message.reply_text(f"Chapters reloaded: {n} files.")
+
 
 # [HEROES] команда — перечитать промпты персонажей
 async def reload_heroes_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -727,6 +830,7 @@ async def send_hero_lines(chat, text: str):
     for name, line in parse_lines(text):
         await chat.send_message(f"**{name}**\n{line}", parse_mode=ParseMode.MARKDOWN)
 
+
 async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
@@ -740,7 +844,10 @@ async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if q.data == "ok":
         db_set(chat_id, accepted=1)
-        await q.edit_message_text("Choose a chapter to drop into the running dialogue:", reply_markup=chapters_menu())
+        await q.edit_message_text(
+            "Choose a chapter to drop into the running dialogue:",
+            reply_markup=chapters_menu(),
+        )
         return
 
     if q.data == "back_chapters":
@@ -755,9 +862,17 @@ async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await load_chapter_context_all(chapter_text, participants)
 
         responders, mode = CHAOS.pick(str(chat_id), chapter_text, "(enter)")
-        responders = [r for r in responders if r in participants] or participants[: min(3, len(participants))]
+        responders = [r for r in responders if r in participants] or participants[
+            : min(3, len(participants))
+        ]
 
-        scene_prompt = build_scene_prompt(ch, chapter_text, responders, "(enters the room)", compress_history_for_prompt(chat_id))
+        scene_prompt = build_scene_prompt(
+            ch,
+            chapter_text,
+            responders,
+            "(enters the room)",
+            compress_history_for_prompt(chat_id),
+        )
         thread_add_message(thread_id, "user", scene_prompt)
         await run_and_wait(thread_id)
         text = thread_last_text(thread_id).strip()
@@ -771,6 +886,7 @@ async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.message.chat.send_message(glitch, parse_mode=ParseMode.MARKDOWN)
         return
 
+
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     st = db_get(chat_id)
@@ -779,12 +895,16 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not st["accepted"]:
         await update.message.reply_text(
             "Tap OK to enter.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("OK", callback_data="ok")]])
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("OK", callback_data="ok")]]
+            ),
         )
         return
 
     if not st["chapter"]:
-        await update.message.reply_text("Pick a chapter first.", reply_markup=chapters_menu())
+        await update.message.reply_text(
+            "Pick a chapter first.", reply_markup=chapters_menu()
+        )
         return
 
     thread_id = ensure_thread(chat_id)
@@ -794,10 +914,16 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await load_chapter_context_all(chapter_text, participants)
 
     responders, mode = CHAOS.pick(str(chat_id), chapter_text, msg)
-    responders = [r for r in responders if r in participants] or participants[: min(3, len(participants))]
+    responders = [r for r in responders if r in participants] or participants[
+        : min(3, len(participants))
+    ]
 
-    client.beta.threads.messages.create(thread_id=thread_id, role="user", content=f"USER SAID: {msg}")
-    scene_prompt = build_scene_prompt(ch, chapter_text, responders, msg, compress_history_for_prompt(chat_id))
+    client.beta.threads.messages.create(
+        thread_id=thread_id, role="user", content=f"USER SAID: {msg}"
+    )
+    scene_prompt = build_scene_prompt(
+        ch, chapter_text, responders, msg, compress_history_for_prompt(chat_id)
+    )
     thread_add_message(thread_id, "user", scene_prompt)
     await run_and_wait(thread_id)
 
@@ -813,6 +939,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db_set(chat_id, dialogue_n=new_n)
     if new_n % SUMMARY_EVERY == 0:
         asyncio.create_task(summarize_thread(chat_id))
+
 
 # =========================
 # Main
@@ -846,10 +973,15 @@ def main():
         app.job_queue.run_repeating(periodic_cleanup, interval=3600, first=3600)
     else:
         print("Job queue disabled; periodic cleanup skipped.")
-    loop.run_until_complete(app.bot.set_my_commands([("back", "Return to previous menu")]))
-    loop.run_until_complete(app.bot.set_chat_menu_button(menu_button=MenuButtonCommands()))
+    loop.run_until_complete(
+        app.bot.set_my_commands([("back", "Return to previous menu")])
+    )
+    loop.run_until_complete(
+        app.bot.set_chat_menu_button(menu_button=MenuButtonCommands())
+    )
     print("SUPPERTIME (Assistants API) — ready.")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
+
 
 if __name__ == "__main__":
     main()
