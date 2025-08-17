@@ -97,7 +97,7 @@ def test_unknown_chapter_callback(monkeypatch):
 
     monkeypatch.setattr(monolith, "ensure_thread", lambda cid: "thread-1")
 
-    update = SimpleNamespace(callback_query=make_callback_query(chat_id, chat, "ch_bad"))
+    update = SimpleNamespace(callback_query=make_callback_query(chat_id, chat, "ch_bad"), effective_chat=chat)
     context = SimpleNamespace()
     asyncio.run(monolith.on_click(update, context))
 
@@ -116,5 +116,5 @@ def test_menu_shows_chapters(monkeypatch):
     asyncio.run(monolith.menu_cmd(update, context))
     msg.reply_text.assert_awaited()
     args, kwargs = msg.reply_text.call_args
-    assert "Choose a chapter" in args[0]
+    assert args[0] == "\u200b"
     assert isinstance(kwargs.get("reply_markup"), monolith.InlineKeyboardMarkup)
