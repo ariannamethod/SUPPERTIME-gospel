@@ -53,7 +53,7 @@ def test_full_user_flow(monkeypatch):
     update.message.reply_text.assert_awaited()
 
     # user presses OK
-    update_ok = SimpleNamespace(callback_query=make_callback_query(chat_id, chat, "ok"))
+    update_ok = SimpleNamespace(callback_query=make_callback_query(chat_id, chat, "ok"), effective_chat=chat)
     asyncio.run(monolith.on_click(update_ok, context))
     update_ok.callback_query.edit_message_text.assert_awaited()
     state = monolith.db_get(chat_id)
@@ -62,7 +62,7 @@ def test_full_user_flow(monkeypatch):
     # user selects chapter 1
     chapter_text = monolith.CHAPTERS[1]
     mock_load = monolith.load_chapter_context_all
-    update_ch = SimpleNamespace(callback_query=make_callback_query(chat_id, chat, "ch_1"))
+    update_ch = SimpleNamespace(callback_query=make_callback_query(chat_id, chat, "ch_1"), effective_chat=chat)
     asyncio.run(monolith.on_click(update_ch, context))
     assert mock_load.awaited
     called_text = mock_load.await_args.args[0]
@@ -83,7 +83,7 @@ def test_full_user_flow(monkeypatch):
     update2 = SimpleNamespace(message=make_message(chat), effective_chat=chat)
     asyncio.run(monolith.start(update2, context))
     update2.message.reply_text.assert_awaited()
-    update_ok2 = SimpleNamespace(callback_query=make_callback_query(chat_id, chat, "ok"))
+    update_ok2 = SimpleNamespace(callback_query=make_callback_query(chat_id, chat, "ok"), effective_chat=chat)
     asyncio.run(monolith.on_click(update_ok2, context))
     update_ok2.callback_query.edit_message_text.assert_awaited()
 

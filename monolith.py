@@ -790,7 +790,7 @@ async def send_hero_lines(chat, text: str, context: ContextTypes.DEFAULT_TYPE):
 async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
-    chat_id = q.message.chat_id
+    chat_id = update.effective_chat.id
     st = db_get(chat_id)
     thread_id = ensure_thread(chat_id)
 
