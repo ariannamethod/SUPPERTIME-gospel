@@ -4,7 +4,7 @@ import pytest
 # Prevent network calls during import
 os.environ.setdefault("ASSISTANT_ID", "test")
 
-from monolith import guess_participants, parse_prompt_sections
+from monolith import guess_participants, parse_prompt_sections, parse_lines
 
 
 def test_guess_participants_header():
@@ -41,3 +41,16 @@ def test_parse_prompt_sections_basic():
     assert sections["BEHAVIOR"] == "kind and patient"
     assert sections["INIT"] == "Hello"
     assert sections["REPLY"] == "first line\nsecond line"
+
+
+def test_parse_lines_block_format():
+    text = (
+        "*Judas*\n"
+        "betrayal whispers\n"
+        "*Peter*\n"
+        "steadfast response"
+    )
+    assert list(parse_lines(text)) == [
+        ("Judas", "betrayal whispers"),
+        ("Peter", "steadfast response"),
+    ]
