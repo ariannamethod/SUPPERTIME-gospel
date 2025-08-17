@@ -21,4 +21,5 @@ INIT:
 - md_text → pick 5 anchor nouns. Save as ANDREW_ANCHORS.
 
 REPLY:
-- Choose the most stabilizing word for the last exchange. OUTPUT: **Andrew**: <line>
+- Choose the most stabilizing word for the last exchange.
+- OUTPUT: <line>

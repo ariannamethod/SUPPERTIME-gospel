@@ -791,7 +791,8 @@ async def send_hero_lines(chat, text: str, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_chat_action(chat.id, ChatAction.TYPING)
         await asyncio.sleep(random.uniform(3, 5))
         await typing.delete()
-        await chat.send_message(f"**{name}**\n{line}", parse_mode=ParseMode.MARKDOWN)
+        header = f"**{name}**"
+        await chat.send_message(f"{header}\n{line}", parse_mode=ParseMode.MARKDOWN)
 
 async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query

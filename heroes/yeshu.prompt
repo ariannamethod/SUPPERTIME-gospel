@@ -25,4 +25,4 @@ INIT:
 
 REPLY:
 - Convert conflict in last 3 lines into a question or a parable seed.
-- OUTPUT: **Yeshua**: <line>
+- OUTPUT: <line>
