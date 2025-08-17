@@ -42,6 +42,7 @@ def test_full_user_flow(monkeypatch):
     monkeypatch.setattr(monolith, "thread_last_text", lambda tid: "**Judas**: hi")
     monkeypatch.setattr(monolith, "send_hero_lines", AsyncMock())
     monkeypatch.setattr(monolith, "CHAOS", SimpleNamespace(pick=lambda *a, **k: (["Judas"], "mode")))
+    monkeypatch.setattr(monolith, "MARKOV", SimpleNamespace(glitch=lambda: ""))
     fake_client = SimpleNamespace(beta=SimpleNamespace(threads=SimpleNamespace(messages=SimpleNamespace(create=MagicMock()))))
     monkeypatch.setattr(monolith, "client", fake_client)
 
@@ -99,6 +100,7 @@ def test_unknown_chapter_callback(monkeypatch):
 
     update = SimpleNamespace(callback_query=make_callback_query(chat_id, chat, "ch_bad"))
     context = SimpleNamespace()
+    update.effective_chat = chat
     asyncio.run(monolith.on_click(update, context))
 
     chat.send_message.assert_awaited_once_with("Unknown chapter")
@@ -116,5 +118,5 @@ def test_menu_shows_chapters(monkeypatch):
     asyncio.run(monolith.menu_cmd(update, context))
     msg.reply_text.assert_awaited()
     args, kwargs = msg.reply_text.call_args
-    assert "Choose a chapter" in args[0]
+    assert args[0].strip() == ""
     assert isinstance(kwargs.get("reply_markup"), monolith.InlineKeyboardMarkup)
