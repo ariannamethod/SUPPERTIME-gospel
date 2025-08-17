@@ -3,7 +3,7 @@
 ![logo](assets/suppertimegospel.jpg)
 
 
-Suppertime Gospel is a Telegram bot that stages interactive gospel scenes using OpenAI's Assistants API.  Chapters of the narrative live in `docs/` and each character's persona lives in `heroes/`.  The bot lets you drop into any chapter and guide the conversation.
+Suppertime Gospel is a Telegram Theatre that stages interactive gospel scenes using OpenAI's Assistants API.  Chapters of the narrative live in `docs/` and each character's persona lives in `heroes/`.  The bot lets you drop into any chapter and guide the conversation.
 
 ## Environment Variables
 Set the following variables before running the bot:
