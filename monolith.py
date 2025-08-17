@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 from config import settings
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot, MenuButtonCommands
-from telegram.constants import ParseMode
+from telegram.constants import ParseMode, ChatAction
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler,
     MessageHandler, ContextTypes, filters
@@ -747,8 +747,12 @@ def parse_lines(text: str):
             yield m.group(1), m.group(2)
 
 
-async def send_hero_lines(chat, text: str):
+async def send_hero_lines(chat, text: str, context: ContextTypes.DEFAULT_TYPE):
     for name, line in parse_lines(text):
+        typing = await chat.send_message(f"{name} is typing…")
+        await context.bot.send_chat_action(chat.id, ChatAction.TYPING)
+        await asyncio.sleep(random.uniform(3, 5))
+        await typing.delete()
         await chat.send_message(f"**{name}**\n{line}", parse_mode=ParseMode.MARKDOWN)
 
 async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -791,7 +795,7 @@ async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         glitch = MARKOV.glitch()
 
         await q.message.delete()
-        await send_hero_lines(q.message.chat, text)
+        await send_hero_lines(q.message.chat, text, context)
         if glitch:
             await q.message.chat.send_message(glitch, parse_mode=ParseMode.MARKDOWN)
         return
@@ -833,7 +837,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = "**Judas**: ..."
     glitch = MARKOV.glitch()
 
-    await send_hero_lines(update.message.chat, text)
+    await send_hero_lines(update.message.chat, text, context)
     if glitch:
         await update.message.chat.send_message(glitch, parse_mode=ParseMode.MARKDOWN)
     new_n = st["dialogue_n"] + 1
