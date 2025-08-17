@@ -16,6 +16,7 @@ Set the following variables before running the bot:
 
 ## Running Locally
 1. Install dependencies: `pip install -r requirements.txt`
+   - Tested with `openai==1.99.9` and `python-telegram-bot[job-queue]==22.3`
 2. Export the required environment variables
 3. Launch the bot: `python monolith.py`
 
