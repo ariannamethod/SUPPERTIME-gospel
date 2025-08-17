@@ -59,10 +59,18 @@ def db_init():
             thread_id   TEXT,
             accepted    INTEGER DEFAULT 0,
             chapter     INTEGER,
-            dialogue_n  INTEGER DEFAULT 0
+            dialogue_n  INTEGER DEFAULT 0,
+            summary     TEXT
         )"""
         )
         conn.commit()
+
+        # Ensure legacy databases get the new column
+        cur = conn.execute("PRAGMA table_info(chats)")
+        cols = {row[1] for row in cur.fetchall()}
+        if "summary" not in cols:
+            conn.execute("ALTER TABLE chats ADD COLUMN summary TEXT")
+            conn.commit()
 
 
 db_init()
@@ -71,7 +79,7 @@ db_init()
 def db_get(chat_id):
     with get_connection() as conn:
         cur = conn.execute(
-            "SELECT chat_id, thread_id, accepted, chapter, dialogue_n FROM chats WHERE chat_id=?",
+            "SELECT chat_id, thread_id, accepted, chapter, dialogue_n, summary FROM chats WHERE chat_id=?",
             (chat_id,),
         )
         row = cur.fetchone()
@@ -82,6 +90,7 @@ def db_get(chat_id):
                 "accepted": bool(row["accepted"]),
                 "chapter": row["chapter"],
                 "dialogue_n": row["dialogue_n"],
+                "summary": row["summary"],
             }
         conn.execute("INSERT OR IGNORE INTO chats(chat_id) VALUES(?)", (chat_id,))
         conn.commit()
@@ -91,6 +100,7 @@ def db_get(chat_id):
         "accepted": False,
         "chapter": None,
         "dialogue_n": 0,
+        "summary": "",
     }
 
 
@@ -278,6 +288,83 @@ def ensure_thread(chat_id: int) -> str:
 def thread_add_message(thread_id: str, role: str, content: str):
     client.beta.threads.messages.create(thread_id=thread_id, role=role, content=content)
 
+
+def summarize_thread(thread_id: str, keep_pairs: int = 2):
+    """Condense old dialogue in a thread, store in DB, and prune messages.
+
+    Keeps the most recent ``keep_pairs`` user↔assistant exchanges. Older
+    dialogue (plus any previously stored summary) is summarized via the model
+    and persisted in the ``summary`` field of the chats table.
+    """
+    try:
+        th = client.beta.threads.retrieve(thread_id=thread_id)
+        chat_id = int(th.metadata.get("chat_id")) if th.metadata else None
+    except Exception:
+        return
+    if not chat_id:
+        return
+
+    st = db_get(chat_id)
+    prev_summary = st.get("summary") or ""
+
+    # Fetch full message history (ordered ascending for chronological access).
+    msgs = client.beta.threads.messages.list(
+        thread_id=thread_id, order="asc", limit=100
+    )
+    history = []
+    for m in msgs.data:
+        if m.role not in ("user", "assistant"):
+            continue
+        parts = []
+        for c in m.content:
+            if c.type == "text":
+                parts.append(c.text.value.strip())
+        if parts:
+            history.append((m.id, m.role, " ".join(parts)))
+
+    # Nothing to summarize if history is short.
+    if len(history) <= keep_pairs * 2:
+        return
+
+    older = history[:-keep_pairs * 2]
+
+    # Compose text for summarization, seeding with previous summary if any.
+    lines = []
+    if prev_summary:
+        lines.append(f"Previous summary: {prev_summary}")
+    for _, role, text in older:
+        prefix = "User" if role == "user" else "Assistant"
+        lines.append(f"{prefix}: {text}")
+    prompt = "\n".join(lines)
+
+    try:
+        resp = client.responses.create(
+            model=MODEL,
+            input=f"Summarize the following conversation succinctly:\n{prompt}"
+        )
+        summary = getattr(resp, "output_text", "").strip()
+        if not summary and getattr(resp, "output", None):
+            buf = []
+            for o in resp.output:
+                for c in getattr(o, "content", []):
+                    if getattr(c, "type", None) == "text":
+                        buf.append(c.text.value)
+            summary = "".join(buf).strip()
+    except Exception:
+        return
+
+    if not summary:
+        return
+
+    db_set(chat_id, summary=summary)
+
+    # Prune older messages now that they're summarized.
+    for msg_id, _, _ in older:
+        with contextlib.suppress(Exception):
+            client.beta.threads.messages.delete(
+                thread_id=thread_id, message_id=msg_id
+            )
+
 async def run_and_wait(thread_id: str, extra_instructions: str|None = None, timeout_s: int = 120):
     run = client.beta.threads.runs.create(
         thread_id=thread_id,
@@ -289,11 +376,14 @@ async def run_and_wait(thread_id: str, extra_instructions: str|None = None, time
     while True:
         rr = client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run.id)
         if rr.status in ("completed", "failed", "cancelled", "expired"):
-            return rr
+            break
         if time.time() - t0 > timeout_s:
             client.beta.threads.runs.cancel(thread_id=thread_id, run_id=run.id)
-            return rr
+            break
         await asyncio.sleep(0.8)
+    if rr.status == "completed":
+        summarize_thread(thread_id)
+    return rr
 
 def thread_last_text(thread_id: str) -> str:
     msgs = client.beta.threads.messages.list(thread_id=thread_id, order="desc", limit=10)
@@ -513,11 +603,15 @@ Output exactly {len(responders)} lines — one per listed participant, format:
 """
     return scene.strip()
 
-def compress_history_for_prompt(chat_id: int, limit: int = 8) -> str:
+def compress_history_for_prompt(chat_id: int, limit: int = 2) -> str:
     st = db_get(chat_id)
     thread_id = st.get("thread_id")
+    summary = st.get("summary") or ""
+    lines = []
+    if summary:
+        lines.append(f"SUMMARY: {summary}")
     if not thread_id:
-        return ""
+        return "\n".join(lines).strip()
 
     # Grab recent messages from the thread. Fetch a bit more than needed to
     # pair user ↔ assistant exchanges.
@@ -556,13 +650,12 @@ def compress_history_for_prompt(chat_id: int, limit: int = 8) -> str:
             return msg
         return " ".join(words[:tokens]) + "…"
 
-    lines = []
     for user_msg, assistant_msg in exchanges:
         u = _truncate(user_msg)
         a = _truncate(assistant_msg)
         lines.append(f"U:{u}\nA:{a}")
 
-    return "\n---\n".join(lines)
+    return "\n---\n".join(lines).strip()
 
 # =========================
 # Telegram Handlers
