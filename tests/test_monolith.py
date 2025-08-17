@@ -63,3 +63,50 @@ def test_main_checks_env(monkeypatch):
     monkeypatch.setattr(monolith.settings, "openai_api_key", None)
     with pytest.raises(RuntimeError):
         monolith.main()
+
+
+def test_ensure_thread_uses_to_thread(monkeypatch):
+    import monolith
+    import asyncio
+
+    chat_id = 99999
+    monolith.db_get(chat_id)
+
+    called = {}
+
+    def fake_create(*args, **kwargs):
+        class Obj:
+            id = "th123"
+        return Obj()
+
+    async def fake_to_thread(func, *args, **kwargs):
+        called["func"] = func
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(monolith.client.beta.threads, "create", fake_create)
+    monkeypatch.setattr(monolith.asyncio, "to_thread", fake_to_thread)
+
+    tid = asyncio.run(monolith.ensure_thread(chat_id))
+    assert tid == "th123"
+    assert called["func"] is monolith.client.beta.threads.create
+
+
+def test_thread_add_message_uses_to_thread(monkeypatch):
+    import monolith
+    import asyncio
+
+    recorded = {}
+
+    def fake_create(*args, **kwargs):
+        recorded["kwargs"] = kwargs
+
+    async def fake_to_thread(func, *args, **kwargs):
+        recorded["func"] = func
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(monolith.client.beta.threads.messages, "create", fake_create)
+    monkeypatch.setattr(monolith.asyncio, "to_thread", fake_to_thread)
+
+    asyncio.run(monolith.thread_add_message("tid", "user", "hi"))
+    assert recorded["func"] is monolith.client.beta.threads.messages.create
+    assert recorded["kwargs"] == {"thread_id": "tid", "role": "user", "content": "hi"}

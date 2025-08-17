@@ -306,39 +306,57 @@ Hard rules:
 
 ASSISTANT_ID = ensure_assistant()
 
-def ensure_thread(chat_id: int) -> str:
+async def ensure_thread(chat_id: int) -> str:
     st = db_get(chat_id)
     if st["thread_id"]:
         return st["thread_id"]
     logger.info("Creating thread for chat %s", chat_id)
-    th = client.beta.threads.create(metadata={"chat_id": str(chat_id)})
+    th = await asyncio.to_thread(
+        client.beta.threads.create, metadata={"chat_id": str(chat_id)}
+    )
     db_set(chat_id, thread_id=th.id)
     return th.id
 
-def thread_add_message(thread_id: str, role: str, content: str):
+async def thread_add_message(thread_id: str, role: str, content: str):
     logger.info("Posting %s message to thread %s", role, thread_id)
-    client.beta.threads.messages.create(thread_id=thread_id, role=role, content=content)
+    await asyncio.to_thread(
+        client.beta.threads.messages.create,
+        thread_id=thread_id,
+        role=role,
+        content=content,
+    )
 
 async def run_and_wait(thread_id: str, extra_instructions: str|None = None, timeout_s: int = 120):
     logger.info("Starting run for thread %s", thread_id)
-    run = client.beta.threads.runs.create(
+    run = await asyncio.to_thread(
+        client.beta.threads.runs.create,
         thread_id=thread_id,
         assistant_id=ASSISTANT_ID,
-        instructions=extra_instructions or ""
+        instructions=extra_instructions or "",
     )
-    import time, asyncio
+    import time
     t0 = time.time()
     while True:
-        rr = client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run.id)
+        rr = await asyncio.to_thread(
+            client.beta.threads.runs.retrieve,
+            thread_id=thread_id,
+            run_id=run.id,
+        )
         if rr.status in ("completed", "failed", "cancelled", "expired"):
             return rr
         if time.time() - t0 > timeout_s:
-            client.beta.threads.runs.cancel(thread_id=thread_id, run_id=run.id)
+            await asyncio.to_thread(
+                client.beta.threads.runs.cancel,
+                thread_id=thread_id,
+                run_id=run.id,
+            )
             return rr
         await asyncio.sleep(0.3)
 
-def thread_last_text(thread_id: str) -> str:
-    msgs = client.beta.threads.messages.list(thread_id=thread_id, order="desc", limit=10)
+async def thread_last_text(thread_id: str) -> str:
+    msgs = await asyncio.to_thread(
+        client.beta.threads.messages.list, thread_id=thread_id, order="desc", limit=10
+    )
     out = []
     for m in msgs.data:
         if m.role != "assistant":
@@ -600,15 +618,19 @@ dialogue line (no leading colon)
 """
     return scene.strip()
 
-def compress_history_for_prompt(chat_id: int, limit: int = 8) -> str:
+
+async def compress_history_for_prompt(chat_id: int, limit: int = 8) -> str:
     st = db_get(chat_id)
     thread_id = st.get("thread_id")
     summary = st.get("last_summary") or ""
     lines: list[str] = []
 
     if thread_id:
-        msgs = client.beta.threads.messages.list(
-            thread_id=thread_id, order="desc", limit=limit * 2
+        msgs = await asyncio.to_thread(
+            client.beta.threads.messages.list,
+            thread_id=thread_id,
+            order="desc",
+            limit=limit * 2,
         )
 
         history = []
@@ -652,14 +674,18 @@ def compress_history_for_prompt(chat_id: int, limit: int = 8) -> str:
         return summary
     return hist
 
-
 async def summarize_thread(chat_id: int):
     """Summarize thread history and reset dialogue counter."""
     st = db_get(chat_id)
     thread_id = st.get("thread_id")
     if not thread_id:
         return
-    msgs = client.beta.threads.messages.list(thread_id=thread_id, order="asc", limit=100)
+    msgs = await asyncio.to_thread(
+        client.beta.threads.messages.list,
+        thread_id=thread_id,
+        order="asc",
+        limit=100,
+    )
     lines = []
     for m in msgs.data:
         if m.role not in ("user", "assistant"):
@@ -685,7 +711,11 @@ async def summarize_thread(chat_id: int):
     db_set(chat_id, last_summary=summary, dialogue_n=0)
     for m in msgs.data:
         with contextlib.suppress(Exception):
-            client.beta.threads.messages.delete(thread_id=thread_id, message_id=m.id)
+            await asyncio.to_thread(
+                client.beta.threads.messages.delete,
+                thread_id=thread_id,
+                message_id=m.id,
+            )
 
 
 async def cleanup_threads():
@@ -695,7 +725,7 @@ async def cleanup_threads():
         ).fetchall()
     for r in rows:
         try:
-            client.beta.threads.delete(r["thread_id"])
+            await asyncio.to_thread(client.beta.threads.delete, r["thread_id"])
             db_set(r["chat_id"], thread_id=None)
         except Exception as e:
             logger.exception("Failed to delete thread %s: %s", r["thread_id"], e)
@@ -721,7 +751,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     logger.info("/start from chat %s", chat_id)
     st = db_get(chat_id)
-    ensure_thread(chat_id)
+    await ensure_thread(chat_id)
     await update.message.reply_text(
         DISCLAIMER,
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("OK", callback_data="ok"),
@@ -792,7 +822,7 @@ async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await q.answer()
     chat_id = update.effective_chat.id
     st = db_get(chat_id)
-    thread_id = ensure_thread(chat_id)
+    thread_id = await ensure_thread(chat_id)
 
     if q.data == "no":
         await q.edit_message_text("Goodbye.")
@@ -828,10 +858,16 @@ async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         responders, mode = CHAOS.pick(str(chat_id), chapter_text, "(enter)")
         responders = [r for r in responders if r in participants] or participants[: min(3, len(participants))]
 
-        scene_prompt = build_scene_prompt(ch, chapter_text, responders, "(enters the room)", compress_history_for_prompt(chat_id))
-        thread_add_message(thread_id, "user", scene_prompt)
+        scene_prompt = build_scene_prompt(
+            ch,
+            chapter_text,
+            responders,
+            "(enters the room)",
+            await compress_history_for_prompt(chat_id),
+        )
+        await thread_add_message(thread_id, "user", scene_prompt)
         await run_and_wait(thread_id)
-        text = thread_last_text(thread_id).strip()
+        text = (await thread_last_text(thread_id)).strip()
         if not text:
             text = "\n".join(f"**{r}**: (тишина)" for r in responders)
         glitch = MARKOV.glitch()
@@ -859,7 +895,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Pick a chapter first.", reply_markup=chapters_menu())
         return
 
-    thread_id = ensure_thread(chat_id)
+    thread_id = await ensure_thread(chat_id)
     ch = st["chapter"]
     chapter_text = CHAPTERS[ch]
     participants = guess_participants(chapter_text)
@@ -869,12 +905,19 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     responders = [r for r in responders if r in participants] or participants[: min(3, len(participants))]
 
     logger.info("Posting raw user message to thread %s", thread_id)
-    client.beta.threads.messages.create(thread_id=thread_id, role="user", content=f"USER SAID: {msg}")
-    scene_prompt = build_scene_prompt(ch, chapter_text, responders, msg, compress_history_for_prompt(chat_id))
-    thread_add_message(thread_id, "user", scene_prompt)
+    await asyncio.to_thread(
+        client.beta.threads.messages.create,
+        thread_id=thread_id,
+        role="user",
+        content=f"USER SAID: {msg}",
+    )
+    scene_prompt = build_scene_prompt(
+        ch, chapter_text, responders, msg, await compress_history_for_prompt(chat_id)
+    )
+    await thread_add_message(thread_id, "user", scene_prompt)
     await run_and_wait(thread_id)
 
-    text = thread_last_text(thread_id).strip()
+    text = (await thread_last_text(thread_id)).strip()
     if not text:
         text = "\n".join(f"**{r}**: (тишина)" for r in responders)
     glitch = MARKOV.glitch()

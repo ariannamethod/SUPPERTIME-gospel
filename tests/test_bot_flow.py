@@ -35,12 +35,13 @@ def test_full_user_flow(monkeypatch):
     monolith.db_set(chat_id, accepted=0, chapter=None, dialogue_n=0, last_summary="")
 
     # Patch network and heavy functions
-    monkeypatch.setattr(monolith, "ensure_thread", lambda cid: "thread-1")
+    monkeypatch.setattr(monolith, "ensure_thread", AsyncMock(return_value="thread-1"))
     monkeypatch.setattr(monolith, "load_chapter_context_all", AsyncMock())
-    monkeypatch.setattr(monolith, "thread_add_message", lambda *a, **k: None)
+    monkeypatch.setattr(monolith, "thread_add_message", AsyncMock())
     monkeypatch.setattr(monolith, "run_and_wait", AsyncMock())
-    monkeypatch.setattr(monolith, "thread_last_text", lambda tid: "**Judas**: hi")
+    monkeypatch.setattr(monolith, "thread_last_text", AsyncMock(return_value="**Judas**: hi"))
     monkeypatch.setattr(monolith, "send_hero_lines", AsyncMock())
+    monkeypatch.setattr(monolith, "compress_history_for_prompt", AsyncMock(return_value=""))
     monkeypatch.setattr(monolith, "CHAOS", SimpleNamespace(pick=lambda *a, **k: (["Judas"], "mode")))
     fake_client = SimpleNamespace(beta=SimpleNamespace(threads=SimpleNamespace(messages=SimpleNamespace(create=MagicMock()))))
     monkeypatch.setattr(monolith, "client", fake_client)
@@ -92,10 +93,11 @@ def test_unknown_chapter_callback(monkeypatch):
     chat_id = 4242
     chat = SimpleNamespace(id=chat_id, send_message=AsyncMock())
 
+    monolith.db_get(chat_id)
     monolith.db_set(chat_id, accepted=1, chapter=3, dialogue_n=2, last_summary="old")
     state_before = monolith.db_get(chat_id)
 
-    monkeypatch.setattr(monolith, "ensure_thread", lambda cid: "thread-1")
+    monkeypatch.setattr(monolith, "ensure_thread", AsyncMock(return_value="thread-1"))
 
     update = SimpleNamespace(callback_query=make_callback_query(chat_id, chat, "ch_bad"), effective_chat=chat)
     context = SimpleNamespace()
