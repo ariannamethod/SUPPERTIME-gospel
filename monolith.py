@@ -7,7 +7,6 @@
 #   OPENAI_TEMPERATURE=1.2
 #   ASSISTANT_ID=<reuse existing>
 
-import os
 import re
 import sqlite3
 import random
@@ -21,6 +20,8 @@ import logging
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+from config import settings
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot, MenuButtonCommands
 from telegram.constants import ParseMode
@@ -39,19 +40,19 @@ except ImportError as e:
     ) from e
 
 # Default to the GPT-4.1 model unless overridden by env
-MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1")
-TEMPERATURE = float(os.getenv("OPENAI_TEMPERATURE", "1.2"))
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+MODEL = settings.openai_model
+TEMPERATURE = settings.openai_temperature
+TELEGRAM_TOKEN = settings.telegram_token
 if not TELEGRAM_TOKEN:
     raise RuntimeError("Set TELEGRAM_TOKEN env var")
-if not os.getenv("OPENAI_API_KEY"):
+if not settings.openai_api_key:
     raise RuntimeError("Set OPENAI_API_KEY env var")
 
 # =========================
 # Storage: SQLite (threads & state)
 # =========================
-DB_PATH = os.getenv("ST_DB", "supertime.db")
-SUMMARY_EVERY = int(os.getenv("SUMMARY_EVERY", "20"))
+DB_PATH = settings.db_path
+SUMMARY_EVERY = settings.summary_every
 
 
 def get_connection():
@@ -278,7 +279,7 @@ client = OpenAI()
 ASSISTANT_ID_PATH = Path(".assistant_id")
 
 def ensure_assistant():
-    asst_id = os.getenv("ASSISTANT_ID")
+    asst_id = settings.assistant_id
     if not asst_id and ASSISTANT_ID_PATH.exists():
         asst_id = ASSISTANT_ID_PATH.read_text().strip()
 
@@ -378,7 +379,7 @@ HEROES = {}
 
 # Cache for hero context per chapter hash to avoid recomputation
 HERO_CTX_CACHE: dict[tuple[str, str], str] = {}
-HERO_CTX_CACHE_DIR = Path(os.getenv("HERO_CTX_CACHE_DIR", ".hero_ctx_cache"))
+HERO_CTX_CACHE_DIR = settings.hero_ctx_cache_dir
 HERO_CTX_CACHE_DIR.mkdir(exist_ok=True)
 
 REQUIRED_SECTIONS = ["NAME", "VOICE", "BEHAVIOR", "INIT", "REPLY"]
