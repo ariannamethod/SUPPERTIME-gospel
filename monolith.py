@@ -17,7 +17,7 @@ from pathlib import Path
 from collections import defaultdict, deque
 import contextlib
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot, MenuButtonCommands
 from telegram.constants import ParseMode
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler,
@@ -323,8 +323,7 @@ DISCLAIMER = (
 )
 
 def chapters_menu():
-    kb = [[InlineKeyboardButton(f"Chapter {i}", callback_data=f"ch_{i}")] for i in range(1,12)]
-    kb.append([InlineKeyboardButton("🌀 Random", callback_data="ch_rand")])
+    kb = [[InlineKeyboardButton(f"Chapter {i}", callback_data=f"ch_{i}")] for i in range(1, 12)]
     return InlineKeyboardMarkup(kb)
 
 def scene_menu():
@@ -636,7 +635,7 @@ async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if q.data.startswith("ch_"):
-        ch = random.randint(1,11) if q.data == "ch_rand" else int(q.data.split("_")[1])
+        ch = int(q.data.split("_")[1])
         db_set(chat_id, chapter=ch, dialogue_n=0)
         chapter_text = CHAPTERS[ch]
         participants = guess_participants(chapter_text)
@@ -732,6 +731,7 @@ def main():
     app.add_handler(CallbackQueryHandler(on_click))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     loop.run_until_complete(app.bot.set_my_commands([("back", "Return to previous menu")]))
+    loop.run_until_complete(app.bot.set_chat_menu_button(menu_button=MenuButtonCommands()))
     print("SUPPERTIME (Assistants API) — ready.")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
