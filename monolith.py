@@ -8,7 +8,7 @@
 #   ASSISTANT_ID=<reuse existing>
 
 import re
-import sqlite3
+import aiosqlite
 import random
 import asyncio
 import hashlib
@@ -50,15 +50,15 @@ DB_PATH = settings.db_path
 SUMMARY_EVERY = settings.summary_every
 
 
-def get_connection():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+async def get_connection():
+    conn = await aiosqlite.connect(DB_PATH)
+    conn.row_factory = aiosqlite.Row
     return conn
 
 
-def db_init():
-    with get_connection() as conn:
-        conn.execute(
+async def db_init():
+    async with await get_connection() as conn:
+        await conn.execute(
             """
         CREATE TABLE IF NOT EXISTS chats (
             chat_id     INTEGER PRIMARY KEY,
@@ -71,25 +71,25 @@ def db_init():
         )
         # ensure columns/indices exist for older DBs
         try:
-            conn.execute("ALTER TABLE chats ADD COLUMN last_summary TEXT")
-        except sqlite3.OperationalError:
+            await conn.execute("ALTER TABLE chats ADD COLUMN last_summary TEXT")
+        except aiosqlite.OperationalError:
             pass
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_chats_thread_id ON chats(thread_id)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_chats_chapter ON chats(chapter)")
-        conn.commit()
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_chats_thread_id ON chats(thread_id)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_chats_chapter ON chats(chapter)")
+        await conn.commit()
 
 
-db_init()
+asyncio.run(db_init())
 
 
-def db_get(chat_id):
+async def db_get(chat_id):
     try:
-        with get_connection() as conn:
-            cur = conn.execute(
+        async with await get_connection() as conn:
+            async with conn.execute(
                 "SELECT chat_id, thread_id, accepted, chapter, dialogue_n, last_summary FROM chats WHERE chat_id=?",
                 (chat_id,),
-            )
-            row = cur.fetchone()
+            ) as cur:
+                row = await cur.fetchone()
             if row:
                 return {
                     "chat_id": row["chat_id"],
@@ -99,9 +99,9 @@ def db_get(chat_id):
                     "dialogue_n": row["dialogue_n"],
                     "last_summary": row["last_summary"],
                 }
-            conn.execute("INSERT OR IGNORE INTO chats(chat_id) VALUES(?)", (chat_id,))
-            conn.commit()
-    except sqlite3.Error as e:
+            await conn.execute("INSERT OR IGNORE INTO chats(chat_id) VALUES(?)", (chat_id,))
+            await conn.commit()
+    except aiosqlite.Error as e:
         logger.exception("DB get failed for chat_id %s: %s", chat_id, e)
     return {
         "chat_id": chat_id,
@@ -113,14 +113,14 @@ def db_get(chat_id):
     }
 
 
-def db_set(chat_id, **fields):
+async def db_set(chat_id, **fields):
     keys = ", ".join([f"{k}=?" for k in fields.keys()])
     vals = list(fields.values()) + [chat_id]
     try:
-        with get_connection() as conn:
-            conn.execute(f"UPDATE chats SET {keys} WHERE chat_id=?", vals)
-            conn.commit()
-    except sqlite3.Error as e:
+        async with await get_connection() as conn:
+            await conn.execute(f"UPDATE chats SET {keys} WHERE chat_id=?", vals)
+            await conn.commit()
+    except aiosqlite.Error as e:
         logger.exception("DB set failed for chat_id %s: %s", chat_id, e)
 
 # =========================
@@ -306,13 +306,13 @@ Hard rules:
 
 ASSISTANT_ID = ensure_assistant()
 
-def ensure_thread(chat_id: int) -> str:
-    st = db_get(chat_id)
+async def ensure_thread(chat_id: int) -> str:
+    st = await db_get(chat_id)
     if st["thread_id"]:
         return st["thread_id"]
     logger.info("Creating thread for chat %s", chat_id)
-    th = client.beta.threads.create(metadata={"chat_id": str(chat_id)})
-    db_set(chat_id, thread_id=th.id)
+    th = await asyncio.to_thread(client.beta.threads.create, metadata={"chat_id": str(chat_id)})
+    await db_set(chat_id, thread_id=th.id)
     return th.id
 
 def thread_add_message(thread_id: str, role: str, content: str):
@@ -600,8 +600,8 @@ dialogue line (no leading colon)
 """
     return scene.strip()
 
-def compress_history_for_prompt(chat_id: int, limit: int = 8) -> str:
-    st = db_get(chat_id)
+async def compress_history_for_prompt(chat_id: int, limit: int = 8) -> str:
+    st = await db_get(chat_id)
     thread_id = st.get("thread_id")
     summary = st.get("last_summary") or ""
     lines: list[str] = []
@@ -655,7 +655,7 @@ def compress_history_for_prompt(chat_id: int, limit: int = 8) -> str:
 
 async def summarize_thread(chat_id: int):
     """Summarize thread history and reset dialogue counter."""
-    st = db_get(chat_id)
+    st = await db_get(chat_id)
     thread_id = st.get("thread_id")
     if not thread_id:
         return
@@ -682,21 +682,22 @@ async def summarize_thread(chat_id: int):
     except Exception as e:
         logger.exception("Failed to summarize thread %s: %s", thread_id, e)
         summary = ""
-    db_set(chat_id, last_summary=summary, dialogue_n=0)
+    await db_set(chat_id, last_summary=summary, dialogue_n=0)
     for m in msgs.data:
         with contextlib.suppress(Exception):
             client.beta.threads.messages.delete(thread_id=thread_id, message_id=m.id)
 
 
 async def cleanup_threads():
-    with get_connection() as conn:
-        rows = conn.execute(
+    async with await get_connection() as conn:
+        async with conn.execute(
             "SELECT chat_id, thread_id FROM chats WHERE thread_id IS NOT NULL AND chapter IS NULL"
-        ).fetchall()
+        ) as cur:
+            rows = await cur.fetchall()
     for r in rows:
         try:
             client.beta.threads.delete(r["thread_id"])
-            db_set(r["chat_id"], thread_id=None)
+            await db_set(r["chat_id"], thread_id=None)
         except Exception as e:
             logger.exception("Failed to delete thread %s: %s", r["thread_id"], e)
             continue
@@ -720,8 +721,8 @@ async def periodic_cleanup(context: ContextTypes.DEFAULT_TYPE):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     logger.info("/start from chat %s", chat_id)
-    st = db_get(chat_id)
-    ensure_thread(chat_id)
+    st = await db_get(chat_id)
+    await ensure_thread(chat_id)
     await update.message.reply_text(
         DISCLAIMER,
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("OK", callback_data="ok"),
@@ -744,7 +745,7 @@ async def reload_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # [HEROES] команда — перечитать промпты персонажей
 async def reload_heroes_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     n = reload_heroes()
-    st = db_get(update.effective_chat.id)
+    st = await db_get(update.effective_chat.id)
     if st.get("chapter"):
         chapter_text = CHAPTERS[st["chapter"]]
         participants = guess_participants(chapter_text)
@@ -791,15 +792,15 @@ async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
     chat_id = update.effective_chat.id
-    st = db_get(chat_id)
-    thread_id = ensure_thread(chat_id)
+    st = await db_get(chat_id)
+    thread_id = await ensure_thread(chat_id)
 
     if q.data == "no":
         await q.edit_message_text("Goodbye.")
         return
 
     if q.data == "ok":
-        db_set(chat_id, accepted=1)
+        await db_set(chat_id, accepted=1)
         await q.edit_message_text("Pick a chapter:", reply_markup=chapters_menu())
         return
 
@@ -820,7 +821,7 @@ async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.warning("Chat %s selected invalid chapter %s", chat_id, ch)
             await q.message.chat.send_message("Unknown chapter")
             return
-        db_set(chat_id, chapter=ch, dialogue_n=0, last_summary="")
+        await db_set(chat_id, chapter=ch, dialogue_n=0, last_summary="")
         chapter_text = CHAPTERS[ch]
         participants = guess_participants(chapter_text)
         await load_chapter_context_all(chapter_text, participants)
@@ -828,7 +829,8 @@ async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         responders, mode = CHAOS.pick(str(chat_id), chapter_text, "(enter)")
         responders = [r for r in responders if r in participants] or participants[: min(3, len(participants))]
 
-        scene_prompt = build_scene_prompt(ch, chapter_text, responders, "(enters the room)", compress_history_for_prompt(chat_id))
+        history = await compress_history_for_prompt(chat_id)
+        scene_prompt = build_scene_prompt(ch, chapter_text, responders, "(enters the room)", history)
         thread_add_message(thread_id, "user", scene_prompt)
         await run_and_wait(thread_id)
         text = thread_last_text(thread_id).strip()
@@ -844,7 +846,7 @@ async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    st = db_get(chat_id)
+    st = await db_get(chat_id)
     msg = (update.message.text or "").strip()
     logger.info("Received message in chat %s: %s", chat_id, msg)
 
@@ -859,7 +861,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Pick a chapter first.", reply_markup=chapters_menu())
         return
 
-    thread_id = ensure_thread(chat_id)
+    thread_id = await ensure_thread(chat_id)
     ch = st["chapter"]
     chapter_text = CHAPTERS[ch]
     participants = guess_participants(chapter_text)
@@ -870,7 +872,8 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     logger.info("Posting raw user message to thread %s", thread_id)
     client.beta.threads.messages.create(thread_id=thread_id, role="user", content=f"USER SAID: {msg}")
-    scene_prompt = build_scene_prompt(ch, chapter_text, responders, msg, compress_history_for_prompt(chat_id))
+    history = await compress_history_for_prompt(chat_id)
+    scene_prompt = build_scene_prompt(ch, chapter_text, responders, msg, history)
     thread_add_message(thread_id, "user", scene_prompt)
     await run_and_wait(thread_id)
 
@@ -883,7 +886,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if glitch:
         await update.message.chat.send_message(glitch, parse_mode=ParseMode.MARKDOWN)
     new_n = st["dialogue_n"] + 1
-    db_set(chat_id, dialogue_n=new_n)
+    await db_set(chat_id, dialogue_n=new_n)
     if new_n % SUMMARY_EVERY == 0:
         asyncio.create_task(summarize_thread(chat_id))
 
