@@ -17,6 +17,10 @@ from pathlib import Path
 from collections import defaultdict, deque
 import contextlib
 import time
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot, MenuButtonCommands
 from telegram.constants import ParseMode
@@ -29,8 +33,10 @@ from telegram.error import RetryAfter
 # --- OpenAI Assistants API (SDK >= 1.0) ---
 try:
     from openai import OpenAI
-except Exception as e:
-    raise RuntimeError("Install openai>=1.0:  pip install openai python-telegram-bot openai") from e
+except ImportError as e:
+    raise RuntimeError(
+        "Install openai>=1.0:  pip install openai python-telegram-bot openai"
+    ) from e
 
 # Default to the GPT-4.1 model unless overridden by env
 MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1")
@@ -81,23 +87,26 @@ db_init()
 
 
 def db_get(chat_id):
-    with get_connection() as conn:
-        cur = conn.execute(
-            "SELECT chat_id, thread_id, accepted, chapter, dialogue_n, last_summary FROM chats WHERE chat_id=?",
-            (chat_id,),
-        )
-        row = cur.fetchone()
-        if row:
-            return {
-                "chat_id": row["chat_id"],
-                "thread_id": row["thread_id"],
-                "accepted": bool(row["accepted"]),
-                "chapter": row["chapter"],
-                "dialogue_n": row["dialogue_n"],
-                "last_summary": row["last_summary"],
-            }
-        conn.execute("INSERT OR IGNORE INTO chats(chat_id) VALUES(?)", (chat_id,))
-        conn.commit()
+    try:
+        with get_connection() as conn:
+            cur = conn.execute(
+                "SELECT chat_id, thread_id, accepted, chapter, dialogue_n, last_summary FROM chats WHERE chat_id=?",
+                (chat_id,),
+            )
+            row = cur.fetchone()
+            if row:
+                return {
+                    "chat_id": row["chat_id"],
+                    "thread_id": row["thread_id"],
+                    "accepted": bool(row["accepted"]),
+                    "chapter": row["chapter"],
+                    "dialogue_n": row["dialogue_n"],
+                    "last_summary": row["last_summary"],
+                }
+            conn.execute("INSERT OR IGNORE INTO chats(chat_id) VALUES(?)", (chat_id,))
+            conn.commit()
+    except sqlite3.Error as e:
+        logger.exception("DB get failed for chat_id %s: %s", chat_id, e)
     return {
         "chat_id": chat_id,
         "thread_id": None,
@@ -111,9 +120,12 @@ def db_get(chat_id):
 def db_set(chat_id, **fields):
     keys = ", ".join([f"{k}=?" for k in fields.keys()])
     vals = list(fields.values()) + [chat_id]
-    with get_connection() as conn:
-        conn.execute(f"UPDATE chats SET {keys} WHERE chat_id=?", vals)
-        conn.commit()
+    try:
+        with get_connection() as conn:
+            conn.execute(f"UPDATE chats SET {keys} WHERE chat_id=?", vals)
+            conn.commit()
+    except sqlite3.Error as e:
+        logger.exception("DB set failed for chat_id %s: %s", chat_id, e)
 
 # =========================
 # Chapters I/O
@@ -285,6 +297,7 @@ Hard rules:
 - English only. Rare, tasteful fourth-wall breaks (≤1 line).
 - If user speaks, react to them inside the scene; keep atmosphere of the selected chapter.
 """
+    logger.info("Creating OpenAI assistant")
     asst = client.beta.assistants.create(
         model=MODEL,
         name="SUPPERTIME Orchestrator",
@@ -301,14 +314,17 @@ def ensure_thread(chat_id: int) -> str:
     st = db_get(chat_id)
     if st["thread_id"]:
         return st["thread_id"]
+    logger.info("Creating thread for chat %s", chat_id)
     th = client.beta.threads.create(metadata={"chat_id": str(chat_id)})
     db_set(chat_id, thread_id=th.id)
     return th.id
 
 def thread_add_message(thread_id: str, role: str, content: str):
+    logger.info("Posting %s message to thread %s", role, thread_id)
     client.beta.threads.messages.create(thread_id=thread_id, role=role, content=content)
 
 async def run_and_wait(thread_id: str, extra_instructions: str|None = None, timeout_s: int = 120):
+    logger.info("Starting run for thread %s", thread_id)
     run = client.beta.threads.runs.create(
         thread_id=thread_id,
         assistant_id=ASSISTANT_ID,
@@ -393,14 +409,15 @@ class Hero:
                 self.ctx = cache_file.read_text(encoding="utf-8")
                 HERO_CTX_CACHE[cache_key] = self.ctx
                 return
-            except Exception:
-                pass
+            except (OSError, UnicodeDecodeError) as e:
+                logger.exception("Failed to read hero cache %s: %s", cache_file, e)
         instr = self.sections.get("INIT", "")
         if not instr:
             self.ctx = ""
             return
         prompt = f"{instr}\n\n---\n{md_text}\n---"[:5000]
         try:
+            logger.info("Requesting OpenAI context for %s", self.name)
             resp = await asyncio.to_thread(
                 client.responses.create, model=MODEL, input=prompt, temperature=TEMPERATURE
             )
@@ -408,9 +425,10 @@ class Hero:
             HERO_CTX_CACHE[cache_key] = self.ctx
             try:
                 cache_file.write_text(self.ctx, encoding="utf-8")
-            except Exception:
-                pass
-        except Exception:
+            except (OSError, UnicodeEncodeError) as e:
+                logger.exception("Failed to write hero cache %s: %s", cache_file, e)
+        except Exception as e:
+            logger.exception("OpenAI context load failed for %s: %s", self.name, e)
             self.ctx = ""
 
 
@@ -476,7 +494,8 @@ def load_heroes():
                     raw = raw[:2000] + "\n\n[...truncated for runtime...]"
                 HEROES[name] = Hero(name, sections, raw)
                 count += 1
-        except Exception:
+        except (OSError, UnicodeDecodeError) as e:
+            logger.exception("Failed to load hero file %s: %s", fp, e)
             continue
     return count
 
@@ -498,8 +517,8 @@ async def load_chapter_context_all(md_text: str, names: list[str]):
     async def run(hero: "Hero"):
         try:
             await asyncio.wait_for(hero.load_chapter_context(md_text, md_hash), timeout=10)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.exception("Failed to load chapter context for %s: %s", hero.name, e)
 
     for n in names:
         hero = HEROES.get(n)
@@ -638,11 +657,13 @@ async def summarize_thread(chat_id: int):
         return
     prompt = "Summarize the following dialogue:\n" + "\n".join(lines) + "\nSummary:"
     try:
+        logger.info("Requesting OpenAI summary for chat %s", chat_id)
         resp = await asyncio.to_thread(
             client.responses.create, model=MODEL, input=prompt, temperature=0
         )
         summary = (resp.output_text or "").strip()
-    except Exception:
+    except Exception as e:
+        logger.exception("Failed to summarize thread %s: %s", thread_id, e)
         summary = ""
     db_set(chat_id, last_summary=summary, dialogue_n=0)
     for m in msgs.data:
@@ -659,7 +680,8 @@ async def cleanup_threads():
         try:
             client.beta.threads.delete(r["thread_id"])
             db_set(r["chat_id"], thread_id=None)
-        except Exception:
+        except Exception as e:
+            logger.exception("Failed to delete thread %s: %s", r["thread_id"], e)
             continue
 
 
@@ -680,6 +702,7 @@ async def periodic_cleanup(context: ContextTypes.DEFAULT_TYPE):
 # =========================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
+    logger.info("/start from chat %s", chat_id)
     st = db_get(chat_id)
     ensure_thread(chat_id)
     await update.message.reply_text(
@@ -749,6 +772,7 @@ async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if q.data.startswith("ch_"):
         ch = int(q.data.split("_")[1])
+        logger.info("Chat %s selected chapter %s", chat_id, ch)
         db_set(chat_id, chapter=ch, dialogue_n=0, last_summary="")
         chapter_text = CHAPTERS[ch]
         participants = guess_participants(chapter_text)
@@ -775,6 +799,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     st = db_get(chat_id)
     msg = (update.message.text or "").strip()
+    logger.info("Received message in chat %s: %s", chat_id, msg)
 
     if not st["accepted"]:
         await update.message.reply_text(
@@ -796,6 +821,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     responders, mode = CHAOS.pick(str(chat_id), chapter_text, msg)
     responders = [r for r in responders if r in participants] or participants[: min(3, len(participants))]
 
+    logger.info("Posting raw user message to thread %s", thread_id)
     client.beta.threads.messages.create(thread_id=thread_id, role="user", content=f"USER SAID: {msg}")
     scene_prompt = build_scene_prompt(ch, chapter_text, responders, msg, compress_history_for_prompt(chat_id))
     thread_add_message(thread_id, "user", scene_prompt)
