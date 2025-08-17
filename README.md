@@ -13,6 +13,7 @@ Set the following variables before running the bot:
 - `OPENAI_MODEL` – OpenAI model name (optional, defaults to `gpt-4.1`)
 - `OPENAI_TEMPERATURE` – sampling temperature (optional, defaults to `1.2`)
 - `ST_DB` – path to the SQLite database (optional)
+- `WEBHOOK_URL` – full webhook URL (optional). If set, the bot listens via webhook on `PORT` (default `8443`) instead of polling and clears any previous webhook on startup.
 
 ## Running Locally
 1. Install dependencies: `pip install -r requirements.txt`
@@ -26,6 +27,9 @@ export TELEGRAM_TOKEN="123:ABC"
 export OPENAI_API_KEY="sk-yourkey"
 python monolith.py
 ```
+
+## Webhook Mode
+Set `WEBHOOK_URL` to your public HTTPS endpoint and (optionally) `PORT` to the listening port. The bot will use a webhook instead of polling and clears old webhooks on startup.
 
 ## Editing Chapters
 Chapter files are Markdown documents in the `docs/` directory named `chapter_XX.md` (two-digit numbers).  Edit an existing file or add a new one, then send `/reload` to the bot in Telegram to pick up changes.
