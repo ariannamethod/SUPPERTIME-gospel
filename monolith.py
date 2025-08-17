@@ -3,8 +3,9 @@
 # Run:
 #   TELEGRAM_TOKEN=xxx OPENAI_API_KEY=xxx python monolith.py
 # Optional:
-#   OPENAI_MODEL=gpt-4.1-mini
-#   ASSISTANT_ID=<reuse existing>  
+#   OPENAI_MODEL=gpt-4.1
+#   OPENAI_TEMPERATURE=1.2
+#   ASSISTANT_ID=<reuse existing>
 
 import os
 import re
@@ -30,8 +31,9 @@ try:
 except Exception as e:
     raise RuntimeError("Install openai>=1.0:  pip install openai python-telegram-bot openai") from e
 
-# Default to the lightweight GPT-4.1 mini model unless overridden by env
-MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+# Default to the GPT-4.1 model unless overridden by env
+MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1")
+TEMPERATURE = float(os.getenv("OPENAI_TEMPERATURE", "1.2"))
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 if not TELEGRAM_TOKEN:
     raise RuntimeError("Set TELEGRAM_TOKEN env var")
@@ -260,7 +262,8 @@ Hard rules:
         model=MODEL,
         name="SUPPERTIME Orchestrator",
         instructions=instructions,
-        tools=[]
+        tools=[],
+        temperature=TEMPERATURE,
     )
     ASSISTANT_ID_PATH.write_text(asst.id)
     return asst.id
@@ -368,7 +371,7 @@ class Hero:
         prompt = f"{instr}\n\n---\n{md_text}\n---"[:5000]
         try:
             resp = await asyncio.to_thread(
-                client.responses.create, model=MODEL, input=prompt
+                client.responses.create, model=MODEL, input=prompt, temperature=TEMPERATURE
             )
             self.ctx = (resp.output_text or "").strip()
             HERO_CTX_CACHE[cache_key] = self.ctx

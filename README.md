@@ -7,7 +7,8 @@ Set the following variables before running the bot:
 
 - `TELEGRAM_TOKEN` – Telegram bot token (required)
 - `OPENAI_API_KEY` – OpenAI API key (required)
-- `OPENAI_MODEL` – OpenAI model name (optional, defaults to `gpt-4.1-mini`)
+- `OPENAI_MODEL` – OpenAI model name (optional, defaults to `gpt-4.1`)
+- `OPENAI_TEMPERATURE` – sampling temperature (optional, defaults to `1.2`)
 - `ST_DB` – path to the SQLite database (optional)
 
 ## Running Locally
