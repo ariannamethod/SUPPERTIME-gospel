@@ -32,10 +32,10 @@ def test_full_user_flow(monkeypatch):
     chat = SimpleNamespace(id=chat_id)
 
     # Reset DB state
-    monolith.db_set(chat_id, accepted=0, chapter=None, dialogue_n=0, last_summary="")
+    asyncio.run(monolith.db_set(chat_id, accepted=0, chapter=None, dialogue_n=0, last_summary=""))
 
     # Patch network and heavy functions
-    monkeypatch.setattr(monolith, "ensure_thread", lambda cid: "thread-1")
+    monkeypatch.setattr(monolith, "ensure_thread", AsyncMock(return_value="thread-1"))
     monkeypatch.setattr(monolith, "load_chapter_context_all", AsyncMock())
     monkeypatch.setattr(monolith, "thread_add_message", lambda *a, **k: None)
     monkeypatch.setattr(monolith, "run_and_wait", AsyncMock())
@@ -56,7 +56,7 @@ def test_full_user_flow(monkeypatch):
     update_ok = SimpleNamespace(callback_query=make_callback_query(chat_id, chat, "ok"), effective_chat=chat)
     asyncio.run(monolith.on_click(update_ok, context))
     update_ok.callback_query.edit_message_text.assert_awaited()
-    state = monolith.db_get(chat_id)
+    state = asyncio.run(monolith.db_get(chat_id))
     assert state["accepted"] is True
 
     # user selects chapter 1
@@ -67,7 +67,7 @@ def test_full_user_flow(monkeypatch):
     assert mock_load.awaited
     called_text = mock_load.await_args.args[0]
     assert called_text == chapter_text
-    state = monolith.db_get(chat_id)
+    state = asyncio.run(monolith.db_get(chat_id))
     assert state["chapter"] == 1
 
     # user sends a message
@@ -76,7 +76,7 @@ def test_full_user_flow(monkeypatch):
     chat.send_message = AsyncMock()
     update_text = SimpleNamespace(message=user_msg, effective_chat=chat)
     asyncio.run(monolith.on_text(update_text, context))
-    state = monolith.db_get(chat_id)
+    state = asyncio.run(monolith.db_get(chat_id))
     assert state["dialogue_n"] == 1
 
     # repeated /start -> OK -> chapters
@@ -92,18 +92,18 @@ def test_unknown_chapter_callback(monkeypatch):
     chat_id = 4242
     chat = SimpleNamespace(id=chat_id, send_message=AsyncMock())
 
-    monolith.db_get(chat_id)  # ensure row exists
-    monolith.db_set(chat_id, accepted=1, chapter=3, dialogue_n=2, last_summary="old")
-    state_before = monolith.db_get(chat_id)
+    asyncio.run(monolith.db_get(chat_id))  # ensure row exists
+    asyncio.run(monolith.db_set(chat_id, accepted=1, chapter=3, dialogue_n=2, last_summary="old"))
+    state_before = asyncio.run(monolith.db_get(chat_id))
 
-    monkeypatch.setattr(monolith, "ensure_thread", lambda cid: "thread-1")
+    monkeypatch.setattr(monolith, "ensure_thread", AsyncMock(return_value="thread-1"))
 
     update = SimpleNamespace(callback_query=make_callback_query(chat_id, chat, "ch_bad"), effective_chat=chat)
     context = SimpleNamespace()
     asyncio.run(monolith.on_click(update, context))
 
     chat.send_message.assert_awaited_once_with("Unknown chapter")
-    state_after = monolith.db_get(chat_id)
+    state_after = asyncio.run(monolith.db_get(chat_id))
     assert state_after == state_before
 
 
