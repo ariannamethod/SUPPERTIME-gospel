@@ -20,6 +20,7 @@ Set the following variables before running the Gospel. They are validated at sta
 - `OPENAI_TEMPERATURE` – sampling temperature (optional, defaults to `1.4`)
 - `ST_DB` – path to the SQLite database (optional)
 - `WEBHOOK_URL` – full webhook URL (optional). If set, Suppertime listens via webhook on `PORT` (default `8443`) instead of polling and clears any previous webhook on startup.
+- `LOG_LEVEL` – log level for application logging (optional, defaults to `INFO`)
 
 ## Running Locally
 1. Install dependencies: `pip install -r requirements.txt`
