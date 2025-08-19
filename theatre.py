@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import random
 import re
+from parse_lines import parse_lines
 import time
 import contextlib
 from collections import defaultdict
@@ -341,52 +342,11 @@ Use Markdown bold for Name, then a colon and a single line of speech. No extra c
     return scene.strip()
 
 
-def parse_lines(text: str):
-    sep = r"[:\-\–—]"
-    bullet = r"(?:[-*+•]\s*)?"
-    name_line_star = re.compile(rf"^{bullet}\*{{1,2}}\s*(.+?)\s*\*{{1,2}}$")
-    name_line_heading = re.compile(rf"^\s{{0,3}}{bullet}#{{1,6}}\s*(.+?)\s*#*\s*$")
-    inline_star = re.compile(
-        rf"^{bullet}\*{{1,2}}\s*(.+?)\s*\*{{1,2}}\s*{sep}\s*(.*)"
-    )
-    inline_plain = re.compile(rf"^{bullet}(?!\*{{1,2}})(.+?)\s*{sep}\s*(.*)")
-    inline_says = re.compile(
-        rf"^{bullet}(?!\*{{1,2}})(.+?)\s+says\s*(?:{sep}\s*)?(.*)", re.I
-    )
-
-    def normalize(name: str) -> str:
-        return name.strip(" \"'“”‘’*-—–•")
-
-    current_name = None
-    buffer: list[str] = []
-    for raw in text.splitlines():
-        line = raw.rstrip()
-        stripped = line.strip().strip("\"'“”‘’")
-        m_inline = (
-            inline_star.match(stripped)
-            or inline_says.match(stripped)
-            or inline_plain.match(stripped)
-        )
-        if m_inline:
-            if current_name and buffer:
-                yield current_name, "\n".join(buffer).strip()
-            yield normalize(m_inline.group(1)), m_inline.group(2)
-            current_name, buffer = None, []
-            continue
-        m_name = name_line_star.match(stripped) or name_line_heading.match(stripped)
-        if m_name:
-            if current_name and buffer:
-                yield current_name, "\n".join(buffer).strip()
-            current_name = normalize(m_name.group(1))
-            buffer = []
-        elif current_name is not None:
-            buffer.append(line)
-    if current_name and buffer:
-        yield current_name, "\n".join(buffer).strip()
-
-
 def is_valid_scene(text: str, participants: list[str]) -> bool:
-    lines = list(parse_lines(text))
+    try:
+        lines = list(parse_lines(text))
+    except ValueError:
+        return False
     if len(lines) != len(participants):
         return False
     return all(name in participants for name, _ in lines)

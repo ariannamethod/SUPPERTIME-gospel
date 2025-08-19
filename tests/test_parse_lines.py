@@ -1,5 +1,7 @@
 import os
 
+import pytest
+
 os.environ.setdefault("ASSISTANT_ID", "test")
 
 from theatre import parse_lines
@@ -58,4 +60,25 @@ def test_parse_lines_name_with_spaces_and_quoted_answer():
 def test_parse_lines_list_marker_with_space_in_name():
     text = "- Mary Magdalene says hello"
     assert list(parse_lines(text)) == [("Mary Magdalene", "hello")]
+
+
+def test_parse_lines_multilingual_names():
+    text = "**Мария**: привет\n**José**: hola\n**李华**: 你好"
+    assert list(parse_lines(text)) == [
+        ("Мария", "привет"),
+        ("José", "hola"),
+        ("李华", "你好"),
+    ]
+
+
+def test_parse_lines_malformed_unmatched_star():
+    text = "*Judas**: hi"
+    with pytest.raises(ValueError):
+        list(parse_lines(text))
+
+
+def test_parse_lines_malformed_unexpected_marker():
+    text = "- hi there"
+    with pytest.raises(ValueError):
+        list(parse_lines(text))
 
