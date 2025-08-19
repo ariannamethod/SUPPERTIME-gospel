@@ -6,7 +6,7 @@ import time
 import os
 from pathlib import Path
 import logging
-import logger
+import logger as _logger_setup  # noqa: F401
 
 from config import settings
 
@@ -394,10 +394,32 @@ async def cleanup_threads():
             continue
 
 
-def cancel_idle(chat_id: int):
-    task = IDLE_TASKS.pop(chat_id, None)
-    if task:
-        task.cancel()
+class IdleTracker:
+    def __init__(self):
+        self.last_activity: dict[int, float] = {}
+        self.idle_tasks: dict[int, asyncio.Task] = {}
+
+    def start(self, chat_id: int, coro):
+        self.cancel(chat_id)
+        task = asyncio.create_task(coro)
+        self.idle_tasks[chat_id] = task
+        task.add_done_callback(lambda t, cid=chat_id: self.idle_tasks.pop(cid, None))
+        return task
+
+    def cancel(self, chat_id: int):
+        task = self.idle_tasks.pop(chat_id, None)
+        if task:
+            task.cancel()
+        self.last_activity.pop(chat_id, None)
+
+    def cleanup(self):
+        for task in list(self.idle_tasks.values()):
+            task.cancel()
+        self.idle_tasks.clear()
+        self.last_activity.clear()
+
+
+IDLE = IdleTracker()
 
 
 async def periodic_cleanup(context: ContextTypes.DEFAULT_TYPE):
@@ -406,14 +428,12 @@ async def periodic_cleanup(context: ContextTypes.DEFAULT_TYPE):
     CHAOS.cleanup(settings.chaos_cleanup_max_age_hours)
 
 
-LAST_ACTIVITY: dict[int, float] = {}
-IDLE_TASKS: dict[int, asyncio.Task] = {}
 INACTIVITY_TIMEOUT = 120
 
 
 async def silence_watchdog(context: ContextTypes.DEFAULT_TYPE):
     now = time.time()
-    for chat_id, ts in list(LAST_ACTIVITY.items()):
+    for chat_id, ts in list(IDLE.last_activity.items()):
         if now - ts <= 120:
             continue
         st = await db_get(chat_id)
@@ -440,14 +460,14 @@ async def silence_watchdog(context: ContextTypes.DEFAULT_TYPE):
         text = await request_scene(thread_id, [hero])
         st_check = await db_get(chat_id)
         if st_check.get("chapter") != ch or not st_check.get("accepted"):
-            cancel_idle(chat_id)
+            IDLE.cancel(chat_id)
             return
         if not text:
             text = f"**{hero}**: (тишина)"
         chat = await context.bot.get_chat(chat_id)
         await send_hero_lines(chat, text, context, participants=[hero])
         bot_ts = time.time()
-        LAST_ACTIVITY[chat_id] = bot_ts
+        IDLE.last_activity[chat_id] = bot_ts
         CHAOS.silence[str(chat_id)] = 0
 
         async def idle_loop():
@@ -457,7 +477,7 @@ async def silence_watchdog(context: ContextTypes.DEFAULT_TYPE):
                 st_check = await db_get(chat_id)
                 if st_check.get("chapter") != ch:
                     break
-                if LAST_ACTIVITY.get(chat_id, 0) > bot_ts:
+                if IDLE.last_activity.get(chat_id, 0) > bot_ts:
                     break
                 responders, _ = CHAOS.pick(str(chat_id), chapter_text, None)
                 responders = [r for r in responders if r in participants] or participants[: min(3, len(participants))]
@@ -473,18 +493,15 @@ async def silence_watchdog(context: ContextTypes.DEFAULT_TYPE):
                 text_inner = await request_scene(thread_id, responders)
                 st_post = await db_get(chat_id)
                 if st_post.get("chapter") != ch or not st_post.get("accepted"):
-                    cancel_idle(chat_id)
+                    IDLE.cancel(chat_id)
                     return
                 if not text_inner:
                     text_inner = "\n".join(f"**{r}**: (тишина)" for r in responders)
                 await send_hero_lines(chat, text_inner, context, participants=responders)
                 bot_ts = time.time()
-                LAST_ACTIVITY[chat_id] = bot_ts
+                IDLE.last_activity[chat_id] = bot_ts
 
-        cancel_idle(chat_id)
-        task = asyncio.create_task(idle_loop())
-        IDLE_TASKS[chat_id] = task
-        task.add_done_callback(lambda t, cid=chat_id: IDLE_TASKS.pop(cid, None))
+        IDLE.start(chat_id, idle_loop())
 
 
 # =========================
@@ -584,8 +601,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     logger.info("/start from chat %s", chat_id)
     await db_get(chat_id)
-    cancel_idle(chat_id)
-    LAST_ACTIVITY.pop(chat_id, None)
+    IDLE.cancel(chat_id)
     await db_set(chat_id, chapter=None, dialogue_n=0, last_summary="")
     await ensure_thread(chat_id)
     await update.message.reply_text(
@@ -605,8 +621,7 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def menu_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     await db_get(chat_id)
-    cancel_idle(chat_id)
-    LAST_ACTIVITY.pop(chat_id, None)
+    IDLE.cancel(chat_id)
     await db_set(chat_id, chapter=None, dialogue_n=0, last_summary="")
     await update.message.reply_text("YOU CHOOSE:", reply_markup=chapters_menu())
 
@@ -632,7 +647,7 @@ async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer(cache_time=1)
     chat_id = update.effective_chat.id
-    LAST_ACTIVITY[chat_id] = time.time()
+    IDLE.last_activity[chat_id] = time.time()
     await db_get(chat_id)
 
     if q.data == "no":
@@ -668,7 +683,7 @@ async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text = await request_scene(thread_id, responders)
             st_check = await db_get(chat_id)
             if st_check.get("chapter") != ch or not st_check.get("accepted"):
-                cancel_idle(chat_id)
+                IDLE.cancel(chat_id)
                 return
             if not text:
                 text = "\n".join(f"**{r}**: (тишина)" for r in responders)
@@ -690,8 +705,8 @@ async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     now = time.time()
-    last = LAST_ACTIVITY.get(chat_id)
-    LAST_ACTIVITY[chat_id] = now
+    last = IDLE.last_activity.get(chat_id)
+    IDLE.last_activity[chat_id] = now
     st = await db_get(chat_id)
     msg = (update.message.text or "").strip()
     logger.info("Received message in chat %s: %s", chat_id, msg)
@@ -750,7 +765,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = await request_scene(thread_id, responders)
     st_check = await db_get(chat_id)
     if st_check.get("chapter") != ch or not st_check.get("accepted"):
-        cancel_idle(chat_id)
+        IDLE.cancel(chat_id)
         return
 
     if not text:
