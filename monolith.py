@@ -828,6 +828,10 @@ async def silence_watchdog(context: ContextTypes.DEFAULT_TYPE):
         )
         thread_add_message(thread_id, "user", scene_prompt)
         await run_and_wait(thread_id)
+        st_check = await db_get(chat_id)
+        if st_check.get("chapter") != ch or not st_check.get("accepted"):
+            cancel_idle(chat_id)
+            return
         text = thread_last_text(thread_id).strip()
         if not text:
             text = f"**{hero}**: (тишина)"
@@ -857,6 +861,10 @@ async def silence_watchdog(context: ContextTypes.DEFAULT_TYPE):
                 )
                 thread_add_message(thread_id, "user", scene_prompt)
                 await run_and_wait(thread_id)
+                st_post = await db_get(chat_id)
+                if st_post.get("chapter") != ch or not st_post.get("accepted"):
+                    cancel_idle(chat_id)
+                    return
                 text_inner = thread_last_text(thread_id).strip()
                 if not text_inner:
                     text_inner = "\n".join(f"**{r}**: (тишина)" for r in responders)
@@ -1022,6 +1030,10 @@ async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         scene_prompt = build_scene_prompt(ch, chapter_text, responders, "(enters the room)", await compress_history_for_prompt(chat_id))
         thread_add_message(thread_id, "user", scene_prompt)
         await run_and_wait(thread_id)
+        st_check = await db_get(chat_id)
+        if st_check.get("chapter") != ch or not st_check.get("accepted"):
+            cancel_idle(chat_id)
+            return
         text = thread_last_text(thread_id).strip()
         if not text:
             text = "\n".join(f"**{r}**: (тишина)" for r in responders)
@@ -1096,6 +1108,10 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     scene_prompt = build_scene_prompt(ch, chapter_text, responders, msg, await compress_history_for_prompt(chat_id))
     thread_add_message(thread_id, "user", scene_prompt)
     await run_and_wait(thread_id)
+    st_check = await db_get(chat_id)
+    if st_check.get("chapter") != ch or not st_check.get("accepted"):
+        cancel_idle(chat_id)
+        return
 
     text = thread_last_text(thread_id).strip()
     if not text:
