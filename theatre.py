@@ -57,10 +57,6 @@ ALL_CHAR_NAMES = [
 # [HEROES] Persona files loader
 # =========================
 HEROES_DIR = Path("heroes")
-HEROES: dict[str, "Hero"] = {}
-HERO_CTX_CACHE: dict[tuple[str, str], str] = {}
-HERO_CTX_CACHE_DIR = settings.hero_ctx_cache_dir
-HERO_CTX_CACHE_DIR.mkdir(exist_ok=True)
 
 REQUIRED_SECTIONS = ["NAME", "VOICE", "BEHAVIOR", "INIT", "REPLY"]
 
@@ -78,14 +74,14 @@ class Hero:
     async def load_chapter_context(self, md_text: str, md_hash: str):
         """Initialize hero-specific context from chapter markdown."""
         cache_key = (self.name, md_hash)
-        cache_file = HERO_CTX_CACHE_DIR / f"{self.name}_{md_hash}.txt"
-        if cache_key in HERO_CTX_CACHE:
-            self.ctx = HERO_CTX_CACHE[cache_key]
+        cache_file = hero_manager.cache_dir / f"{self.name}_{md_hash}.txt"
+        if cache_key in hero_manager.ctx_cache:
+            self.ctx = hero_manager.ctx_cache[cache_key]
             return
         if cache_file.exists():
             try:
                 self.ctx = cache_file.read_text(encoding="utf-8")
-                HERO_CTX_CACHE[cache_key] = self.ctx
+                hero_manager.ctx_cache[cache_key] = self.ctx
                 return
             except (OSError, UnicodeDecodeError) as e:
                 logger.exception(
@@ -105,7 +101,7 @@ class Hero:
                 client.responses.create, model=MODEL, input=prompt, temperature=TEMPERATURE
             )
             self.ctx = (resp.output_text or "").strip()
-            HERO_CTX_CACHE[cache_key] = self.ctx
+            hero_manager.ctx_cache[cache_key] = self.ctx
             try:
                 cache_file.write_text(self.ctx, encoding="utf-8")
             except (OSError, UnicodeEncodeError) as e:
@@ -166,42 +162,56 @@ def find_hero_file(base: Path, name: str) -> Path | None:
     return None
 
 
-def load_heroes():
-    global HEROES
-    HEROES = {}
-    if not HEROES_DIR.exists():
-        return 0
-    count = 0
-    for name in ALL_CHAR_NAMES:
-        fp = find_hero_file(HEROES_DIR, name)
-        if not fp:
-            continue
-        try:
-            raw_full = fp.read_text(encoding="utf-8")
-            sections = parse_prompt_sections(raw_full)
-            if all(sec in sections for sec in REQUIRED_SECTIONS):
-                raw = raw_full.strip()
-                if len(raw) > 2000:
-                    raw = raw[:2000] + "\n\n[...truncated for runtime...]"
-                HEROES[name] = Hero(name, sections, raw)
-                count += 1
-        except (OSError, UnicodeDecodeError) as e:
-            logger.exception(
-                "Failed to load hero %s from %s: %s",
-                name,
-                fp,
-                e,
-            )
-            continue
-    return count
+class HeroManager:
+    """Manage hero persona loading and context caching."""
+
+    def __init__(self, heroes_dir: Path = HEROES_DIR, cache_dir: Path = settings.hero_ctx_cache_dir):
+        self.heroes_dir = Path(heroes_dir)
+        self.cache_dir = Path(cache_dir)
+        self.heroes: dict[str, Hero] = {}
+        self.ctx_cache: dict[tuple[str, str], str] = {}
+        self.cache_dir.mkdir(exist_ok=True)
+
+    def load_all(self) -> int:
+        self.heroes = {}
+        if not self.heroes_dir.exists():
+            return 0
+        count = 0
+        for name in ALL_CHAR_NAMES:
+            fp = find_hero_file(self.heroes_dir, name)
+            if not fp:
+                continue
+            try:
+                raw_full = fp.read_text(encoding="utf-8")
+                sections = parse_prompt_sections(raw_full)
+                if all(sec in sections for sec in REQUIRED_SECTIONS):
+                    raw = raw_full.strip()
+                    if len(raw) > 2000:
+                        raw = raw[:2000] + "\n\n[...truncated for runtime...]"
+                    self.heroes[name] = Hero(name, sections, raw)
+                    count += 1
+            except (OSError, UnicodeDecodeError) as e:
+                logger.exception(
+                    "Failed to load hero %s from %s: %s",
+                    name,
+                    fp,
+                    e,
+                )
+                continue
+        return count
+
+    def reload(self) -> int:
+        self.ctx_cache.clear()
+        for p in self.cache_dir.glob("*.txt"):
+            with contextlib.suppress(Exception):
+                p.unlink()
+        return self.load_all()
+
+    def get(self, name: str) -> "Hero | None":
+        return self.heroes.get(name)
 
 
-def reload_heroes():
-    HERO_CTX_CACHE.clear()
-    for p in HERO_CTX_CACHE_DIR.glob("*.txt"):
-        with contextlib.suppress(Exception):
-            p.unlink()
-    return load_heroes()
+hero_manager = HeroManager()
 
 async def load_chapter_context_all(md_text: str, names: list[str]):
     """Notify selected heroes about the chosen chapter in the background."""
@@ -214,7 +224,7 @@ async def load_chapter_context_all(md_text: str, names: list[str]):
             logger.exception("Failed to load chapter context for %s: %s", hero.name, e)
 
     for n in names:
-        hero = HEROES.get(n)
+        hero = hero_manager.get(n)
         if hero:
             asyncio.create_task(run(hero))
     await asyncio.sleep(0)
@@ -236,7 +246,7 @@ def build_personas_snapshot(responders: list[str]) -> str:
     }
     lines = []
     for n in responders:
-        hero = HEROES.get(n)
+        hero = hero_manager.get(n)
         if hero:
             snippet = hero.raw_text[:600]
             if hero.reply:
@@ -427,7 +437,7 @@ CHAOS = ChaosDirector()
 
 def cleanup_hero_cache(max_age_hours: int = 24):
     cutoff = time.time() - max_age_hours * 3600
-    for p in HERO_CTX_CACHE_DIR.glob("*.txt"):
+    for p in hero_manager.cache_dir.glob("*.txt"):
         if p.stat().st_mtime < cutoff:
             with contextlib.suppress(Exception):
                 p.unlink()
