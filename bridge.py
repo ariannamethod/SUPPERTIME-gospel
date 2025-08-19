@@ -325,7 +325,10 @@ async def send_hero_lines(
     reply_to_message_id: int | None = None,
     participants: list[str] | None = None,
 ):
-    lines = list(parse_lines(text))
+    try:
+        lines = list(parse_lines(text))
+    except ValueError:
+        lines = []
     if participants is not None:
         names = [n for n, _ in lines]
         if len(lines) != len(participants) or any(n not in participants for n in names):
