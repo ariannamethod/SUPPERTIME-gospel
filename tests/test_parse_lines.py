@@ -2,7 +2,7 @@ import os
 
 os.environ.setdefault("ASSISTANT_ID", "test")
 
-from monolith import parse_lines
+from theatre import parse_lines
 
 
 def test_parse_lines_double_star_inline():
