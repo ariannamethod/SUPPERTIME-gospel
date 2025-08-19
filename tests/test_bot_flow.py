@@ -171,6 +171,7 @@ def test_no_response_when_menu_called_early(monkeypatch):
     monkeypatch.setattr(monolith, "client", fake_client)
     send_mock = AsyncMock()
     monkeypatch.setattr(monolith, "send_hero_lines", send_mock)
+    monkeypatch.setattr(monolith, "request_scene", AsyncMock(return_value="**Judas**: hi"))
 
     started = asyncio.Event()
     finished = asyncio.Event()
@@ -278,6 +279,7 @@ def test_on_text_sends_pre_message(monkeypatch):
     monkeypatch.setattr(monolith, "thread_add_message", lambda *a, **k: None)
     monkeypatch.setattr(monolith, "run_and_wait", AsyncMock())
     monkeypatch.setattr(monolith, "thread_last_text", lambda tid: "**Judas**: hi")
+    monkeypatch.setattr(monolith, "request_scene", AsyncMock(return_value="**Judas**: hi"))
     monkeypatch.setattr(monolith, "CHAOS", SimpleNamespace(pick=lambda *a, **k: (["Judas"], "mode")))
     fake_client = SimpleNamespace(beta=SimpleNamespace(threads=SimpleNamespace(messages=SimpleNamespace(create=MagicMock()))))
     monkeypatch.setattr(monolith, "client", fake_client)
@@ -431,6 +433,7 @@ def test_no_send_when_chapter_changes_during_wait(monkeypatch):
 
         send_mock = AsyncMock()
         monkeypatch.setattr(monolith, "send_hero_lines", send_mock)
+        monkeypatch.setattr(monolith, "request_scene", AsyncMock(return_value="**Judas**: hi"))
 
         idle = asyncio.create_task(asyncio.sleep(3600))
         monolith.IDLE_TASKS[chat_id] = idle
