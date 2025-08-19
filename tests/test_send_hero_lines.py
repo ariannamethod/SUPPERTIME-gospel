@@ -8,7 +8,7 @@ from telegram.constants import ParseMode
 # Prevent network calls during import
 os.environ.setdefault("ASSISTANT_ID", "test")
 
-from monolith import send_hero_lines
+from bridge import send_hero_lines
 
 
 def test_send_chat_action_multiple_calls(monkeypatch):

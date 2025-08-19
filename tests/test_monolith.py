@@ -1,10 +1,12 @@
 import os
+import os
 import pytest
 
 # Prevent network calls during import
 os.environ.setdefault("ASSISTANT_ID", "test")
 
-from monolith import guess_participants, parse_prompt_sections, parse_lines
+from bridge import guess_participants
+from theatre import parse_prompt_sections, parse_lines
 
 
 def test_guess_participants_header():
@@ -83,9 +85,9 @@ def test_parse_lines_mixed_format():
 
 
 def test_main_checks_env(monkeypatch):
-    import monolith
+    import bridge
 
-    monkeypatch.setattr(monolith, "TELEGRAM_TOKEN", None)
-    monkeypatch.setattr(monolith.settings, "openai_api_key", None)
+    monkeypatch.setattr(bridge, "TELEGRAM_TOKEN", None)
+    monkeypatch.setattr(bridge.settings, "openai_api_key", None)
     with pytest.raises(RuntimeError):
-        monolith.main()
+        bridge.main()
