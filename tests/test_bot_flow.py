@@ -94,6 +94,20 @@ def test_full_user_flow(monkeypatch):
     update_ok2.callback_query.edit_message_text.assert_awaited()
 
 
+def test_send_hero_lines_multiline(monkeypatch):
+    chat = SimpleNamespace(id=1)
+    chat.send_message = AsyncMock(return_value=SimpleNamespace(delete=AsyncMock()))
+    context = SimpleNamespace(bot=SimpleNamespace(send_chat_action=AsyncMock()))
+    monkeypatch.setattr(monolith.random, "uniform", lambda a, b: 0)
+    text = "**Peter**\nfirst line\n\nsecond line"
+    asyncio.run(monolith.send_hero_lines(chat, text, context))
+    calls = chat.send_message.await_args_list
+    assert calls[0].args[0] == "Peter is typing…"
+    assert calls[1].args[0] == "**Peter**\nfirst line"
+    assert calls[2].args[0] == "Peter is typing…"
+    assert calls[3].args[0] == "**Peter**\nsecond line"
+
+
 def test_unknown_chapter_callback(monkeypatch):
     chat_id = 4242
     chat = SimpleNamespace(id=chat_id, send_message=AsyncMock())

@@ -15,7 +15,21 @@ def test_parse_lines_multiline_block_double_star():
         "single line"
     )
     assert list(parse_lines(text)) == [
-        ("Judas", "line one\nline two"),
+        ("Judas", "line one"),
+        ("Judas", "line two"),
         ("Mary", "single line"),
+    ]
+
+
+def test_parse_lines_skips_blank_lines():
+    text = (
+        "**Judas**\n"
+        "first line\n"
+        "\n"
+        "second line"
+    )
+    assert list(parse_lines(text)) == [
+        ("Judas", "first line"),
+        ("Judas", "second line"),
     ]
 

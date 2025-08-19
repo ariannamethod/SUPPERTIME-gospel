@@ -928,34 +928,35 @@ def parse_lines(text: str):
     inline = re.compile(r"^\*{1,2}(.+?)\*{1,2}:\s*(.*)")
     plain_inline = re.compile(r"^(?!\*{1,2})([^:]+?):\s*(.*)")
     current_name = None
-    buffer: list[str] = []
     for raw in text.splitlines():
         line = raw.rstrip()
         stripped = line.strip()
+        if not stripped:
+            continue
         m_inline = inline.match(stripped)
         if m_inline:
-            if current_name and buffer:
-                yield current_name, "\n".join(buffer).strip()
-            yield m_inline.group(1), m_inline.group(2)
-            current_name, buffer = None, []
+            name, rest = m_inline.group(1), m_inline.group(2)
+            if rest:
+                yield name, rest
+                current_name = None
+            else:
+                current_name = name
             continue
         m_plain = plain_inline.match(stripped)
         if m_plain:
-            if current_name and buffer:
-                yield current_name, "\n".join(buffer).strip()
-            yield m_plain.group(1), m_plain.group(2)
-            current_name, buffer = None, []
+            name, rest = m_plain.group(1), m_plain.group(2)
+            if rest:
+                yield name, rest
+                current_name = None
+            else:
+                current_name = name
             continue
         m_name = name_line.match(stripped)
         if m_name:
-            if current_name and buffer:
-                yield current_name, "\n".join(buffer).strip()
             current_name = m_name.group(1)
-            buffer = []
-        elif current_name is not None:
-            buffer.append(line)
-    if current_name and buffer:
-        yield current_name, "\n".join(buffer).strip()
+            continue
+        if current_name is not None:
+            yield current_name, stripped
 
 
 async def send_hero_lines(
