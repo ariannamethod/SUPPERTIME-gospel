@@ -1,3 +1,7 @@
+import os
+
+os.environ.setdefault("ASSISTANT_ID", "test")
+
 from monolith import parse_lines
 
 
@@ -18,4 +22,14 @@ def test_parse_lines_multiline_block_double_star():
         ("Judas", "line one\nline two"),
         ("Mary", "single line"),
     ]
+
+
+def test_parse_lines_inline_mixed_punctuation_and_spaces():
+    text = "  **Judas**   - hi  \nPeter —  bye"
+    assert list(parse_lines(text)) == [("Judas", "hi"), ("Peter", "bye")]
+
+
+def test_parse_lines_markdown_heading_block():
+    text = ("# Judas\n" "first\n" "## Mary  ##\n" "second")
+    assert list(parse_lines(text)) == [("Judas", "first"), ("Mary", "second")]
 
