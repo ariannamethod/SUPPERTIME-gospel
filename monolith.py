@@ -246,12 +246,14 @@ MARKOV = MarkovEngine()
 class ChaosDirector:
     def __init__(self):
         self.silence = defaultdict(int)
+        self.last_activity: dict[str, float] = {}
         self.weights = {
             "Judas": 0.8, "Yeshua": 0.6, "Peter": 0.7, "Mary": 0.2, "Jan": 0.5,
             "Thomas": 0.6, "Yakov": 0.4, "Andrew": 0.1, "Leo": 0.3, "Theodore": 0.1, "Dubrovsky": 0.05
         }
 
     def pick(self, chat_id: str, chapter_text: str, user_text: str|None):
+        self.last_activity[chat_id] = time.time()
         user_silent = not user_text or not user_text.strip()
         mode = "active"
         if user_silent:
@@ -278,6 +280,13 @@ class ChaosDirector:
                 chosen.append(cand)
             tries += 1
         return chosen, mode
+
+    def cleanup(self, max_age_hours: int = 24):
+        cutoff = time.time() - max_age_hours * 3600
+        for chat_id, ts in list(self.last_activity.items()):
+            if ts < cutoff:
+                self.last_activity.pop(chat_id, None)
+                self.silence.pop(chat_id, None)
 
 CHAOS = ChaosDirector()
 LAST_ACTIVITY: dict[int, float] = {}
@@ -774,6 +783,7 @@ def cleanup_hero_cache(max_age_hours: int = 24):
 async def periodic_cleanup(context: ContextTypes.DEFAULT_TYPE):
     await cleanup_threads()
     cleanup_hero_cache()
+    CHAOS.cleanup()
 
 
 async def silence_watchdog(context: ContextTypes.DEFAULT_TYPE):
