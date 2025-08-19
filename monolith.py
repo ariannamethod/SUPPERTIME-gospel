@@ -299,7 +299,14 @@ class ChaosDirector:
 
 CHAOS = ChaosDirector()
 LAST_ACTIVITY: dict[int, float] = {}
+IDLE_TASKS: dict[int, asyncio.Task] = {}
 INACTIVITY_TIMEOUT = 120  # seconds
+
+
+def cancel_idle(chat_id: int):
+    task = IDLE_TASKS.pop(chat_id, None)
+    if task:
+        task.cancel()
 
 # =========================
 # Assistants bootstrap
@@ -857,7 +864,10 @@ async def silence_watchdog(context: ContextTypes.DEFAULT_TYPE):
                 bot_ts = time.time()
                 LAST_ACTIVITY[chat_id] = bot_ts
 
-        asyncio.create_task(idle_loop())
+        cancel_idle(chat_id)
+        task = asyncio.create_task(idle_loop())
+        IDLE_TASKS[chat_id] = task
+        task.add_done_callback(lambda t, cid=chat_id: IDLE_TASKS.pop(cid, None))
 
 # =========================
 # Telegram Handlers
@@ -866,6 +876,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     logger.info("/start from chat %s", chat_id)
     await db_get(chat_id)
+    cancel_idle(chat_id)
+    LAST_ACTIVITY.pop(chat_id, None)
+    await db_set(chat_id, chapter=None, dialogue_n=0, last_summary="")
     await ensure_thread(chat_id)
     await update.message.reply_text(
         DISCLAIMER,
@@ -880,6 +893,11 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def menu_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    await db_get(chat_id)
+    cancel_idle(chat_id)
+    LAST_ACTIVITY.pop(chat_id, None)
+    await db_set(chat_id, chapter=None, dialogue_n=0, last_summary="")
     await update.message.reply_text("YOU CHOOSE:", reply_markup=chapters_menu())
 
 async def reload_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -950,6 +968,7 @@ async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if q.data.startswith("ch_"):
+        cancel_idle(chat_id)
         match = re.match(r"^ch_(\d+)$", q.data)
         if not match:
             logger.warning("Chat %s sent malformed chapter callback %s", chat_id, q.data)
