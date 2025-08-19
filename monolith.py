@@ -191,19 +191,28 @@ NAME_MARKERS = {
 }
 ALL_CHAR_NAMES = list(NAME_MARKERS.keys())
 
+
+def detect_names(text: str) -> list[str]:
+    """Return list of known character names found in *text* preserving order."""
+    if not text:
+        return []
+    found: list[str] = []
+    for name, rx in NAME_MARKERS.items():
+        if rx.search(text) and name not in found:
+            found.append(name)
+    return found
+
+
 def guess_participants(chapter_text: str):
     header_match = re.match(r"\s*Participants:\s*(.*)", chapter_text or "", re.IGNORECASE)
+    names: list[str] = []
     if header_match:
         names = [n.strip() for n in header_match.group(1).split(',') if n.strip()]
-        return names
-
-    present = []
-    for name, rx in NAME_MARKERS.items():
-        if rx.search(chapter_text or ""):
-            present.append(name)
-    if not present:
-        present = ["Judas", "Yeshua", "Peter", "Mary", "Jan", "Thomas"]
-    return present
+    body_names = [n for n in detect_names(chapter_text) if n not in names]
+    names.extend(body_names)
+    if not names:
+        names = ["Judas", "Yeshua", "Peter", "Mary", "Jan", "Thomas"]
+    return names
 
 # =========================
 # Markov / glitch (atmosphere only)
@@ -213,13 +222,13 @@ class MarkovEngine:
         self.bigrams = defaultdict(list)
         seeds = [
             "resonate_again()", "galvanize()", "WHO ARE YOU if you're still reading?",
-            "field > node", "rain // shards", "the text is aware", "lilit_hand()"
+            "rain // shards", "the text is aware", "lilit_hand()"
         ]
         for s in seeds:
             toks = s.split()
             for a,b in zip(toks, toks[1:]):
                 self.bigrams[a].append(b)
-        self.p = 0.15
+        self.p = 0
 
     def glitch(self):
         import random
@@ -1013,6 +1022,10 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     responders, mode = CHAOS.pick(str(chat_id), chapter_text, msg)
     responders = [r for r in responders if r in participants] or participants[: min(3, len(participants))]
+    mentioned = [n for n in detect_names(msg) if n in participants]
+    for n in mentioned:
+        if n not in responders:
+            responders.append(n)
 
     logger.info("Posting raw user message to thread %s", thread_id)
     client.beta.threads.messages.create(thread_id=thread_id, role="user", content=f"USER SAID: {msg}")
