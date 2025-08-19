@@ -1046,6 +1046,14 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if n not in responders:
             responders.append(n)
 
+    reply = getattr(update.message, "reply_to_message", None)
+    if reply and getattr(reply, "text", None):
+        hero_name = next((name for name, _ in parse_lines(reply.text)), None)
+        if hero_name and hero_name in participants:
+            if hero_name in responders:
+                responders.remove(hero_name)
+            responders.insert(0, hero_name)
+
     logger.info("Posting raw user message to thread %s", thread_id)
     client.beta.threads.messages.create(thread_id=thread_id, role="user", content=f"USER SAID: {msg}")
     scene_prompt = build_scene_prompt(ch, chapter_text, responders, msg, await compress_history_for_prompt(chat_id))
