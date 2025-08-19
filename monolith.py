@@ -941,14 +941,23 @@ def parse_lines(text: str):
         yield current_name, "\n".join(buffer).strip()
 
 
-async def send_hero_lines(chat, text: str, context: ContextTypes.DEFAULT_TYPE):
+async def send_hero_lines(
+    chat,
+    text: str,
+    context: ContextTypes.DEFAULT_TYPE,
+    reply_to_message_id: int | None = None,
+):
     for name, line in parse_lines(text):
         typing = await chat.send_message(f"{name} is typing…")
         await context.bot.send_chat_action(chat.id, ChatAction.TYPING)
         await asyncio.sleep(random.uniform(3, 5))
         await typing.delete()
         header = f"**{name}**"
-        await chat.send_message(f"{header}\n{line}", parse_mode=ParseMode.MARKDOWN)
+        await chat.send_message(
+            f"{header}\n{line}",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_to_message_id=reply_to_message_id,
+        )
 
 async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -1037,7 +1046,12 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         hero = random.choice(participants)
         pre_text = f"**{hero}**: а, опять ты…"
         thread_add_message(thread_id, "assistant", pre_text)
-        await send_hero_lines(update.message.chat, pre_text, context)
+        await send_hero_lines(
+            update.message.chat,
+            pre_text,
+            context,
+            reply_to_message_id=update.message.message_id,
+        )
 
     responders, mode = CHAOS.pick(str(chat_id), chapter_text, msg)
     responders = [r for r in responders if r in participants] or participants[: min(3, len(participants))]
@@ -1065,7 +1079,12 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = "\n".join(f"**{r}**: (тишина)" for r in responders)
     glitch = MARKOV.glitch()
 
-    await send_hero_lines(update.message.chat, text, context)
+    await send_hero_lines(
+        update.message.chat,
+        text,
+        context,
+        reply_to_message_id=update.message.message_id,
+    )
     if glitch:
         await update.message.chat.send_message(glitch, parse_mode=ParseMode.MARKDOWN)
     new_n = st["dialogue_n"] + 1
