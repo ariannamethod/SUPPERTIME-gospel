@@ -27,7 +27,7 @@ from telegram.ext import (
 )
 from telegram.error import RetryAfter
 
-from openai import APIConnectionError, APITimeoutError
+from openai import APIConnectionError, APITimeoutError, RateLimitError as OpenAIRetryAfter
 
 from theatre import (
     client,
@@ -266,20 +266,53 @@ def thread_last_text(thread_id: str) -> str:
 
 
 async def request_scene(thread_id: str, participants: list[str], retries: int = 2) -> str:
-    text = thread_last_text(thread_id).strip()
-    if is_valid_scene(text, participants):
-        return text
-    for _ in range(retries):
-        msg = (
-            f"Respond with exactly {len(participants)} lines in the format '**Name**: dialogue' using only these names: "
-            f"{', '.join(participants)}."
-        )
-        thread_add_message(thread_id, "user", msg)
-        await run_and_wait(thread_id)
-        text = thread_last_text(thread_id).strip()
-        if is_valid_scene(text, participants):
-            return text
-    return text
+    """Request a scene from OpenAI with retries and exponential backoff."""
+    delay = 1.0
+    for attempt in range(retries + 1):
+        try:
+            text = thread_last_text(thread_id).strip()
+            if is_valid_scene(text, participants):
+                return text
+
+            msg = (
+                f"Respond with exactly {len(participants)} lines in the format '**Name**: dialogue' using only these names: "
+                f"{', '.join(participants)}."
+            )
+            thread_add_message(thread_id, "user", msg)
+            await run_and_wait(thread_id)
+            text = thread_last_text(thread_id).strip()
+            if is_valid_scene(text, participants):
+                return text
+        except APIConnectionError as e:
+            logger.warning(
+                "Scene request connection error (attempt %d/%d): %s",
+                attempt + 1,
+                retries + 1,
+                e,
+            )
+            await asyncio.sleep(delay)
+            delay *= 2
+        except APITimeoutError as e:
+            logger.warning(
+                "Scene request timeout (attempt %d/%d): %s",
+                attempt + 1,
+                retries + 1,
+                e,
+            )
+            await asyncio.sleep(delay)
+            delay *= 2
+        except OpenAIRetryAfter as e:
+            wait = getattr(e, "retry_after", delay)
+            logger.warning(
+                "Scene request rate limited (attempt %d/%d): %s",
+                attempt + 1,
+                retries + 1,
+                e,
+            )
+            await asyncio.sleep(wait)
+            delay = max(delay * 2, wait * 2)
+    logger.error("Failed to produce scene for %s after %d attempts", participants, retries + 1)
+    return "**Narrator**: The scene falls silent."
 
 
 # =========================
