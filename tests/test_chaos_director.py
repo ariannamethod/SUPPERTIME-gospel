@@ -18,16 +18,23 @@ def test_cleanup_removes_old_entries(monkeypatch):
 
 
 def test_periodic_cleanup_calls_chaos_cleanup(monkeypatch):
-    called = SimpleNamespace(flag=False)
+    called = SimpleNamespace(flag=False, arg=None)
 
     async def fake_cleanup_threads():
         return None
 
     monkeypatch.setattr(monolith, "cleanup_threads", fake_cleanup_threads)
     monkeypatch.setattr(monolith, "cleanup_hero_cache", lambda: None)
-    monkeypatch.setattr(monolith.CHAOS, "cleanup", lambda: setattr(called, "flag", True))
+    monkeypatch.setattr(monolith.settings, "chaos_cleanup_max_age_hours", 5)
+
+    def fake_cleanup(max_age_hours):
+        called.flag = True
+        called.arg = max_age_hours
+
+    monkeypatch.setattr(monolith.CHAOS, "cleanup", fake_cleanup)
 
     import asyncio
     asyncio.run(monolith.periodic_cleanup(SimpleNamespace()))
 
     assert called.flag
+    assert called.arg == 5

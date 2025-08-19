@@ -22,6 +22,7 @@ class Settings:
     summary_every: int = int(os.getenv("SUMMARY_EVERY", "20"))
     assistant_id: str | None = os.getenv("ASSISTANT_ID")
     hero_ctx_cache_dir: Path = Path(os.getenv("HERO_CTX_CACHE_DIR", ".hero_ctx_cache"))
+    chaos_cleanup_max_age_hours: int = int(os.getenv("CHAOS_CLEANUP_MAX_AGE_HOURS", "24"))
 
 
 settings = Settings()

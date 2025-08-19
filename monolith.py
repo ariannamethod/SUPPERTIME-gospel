@@ -783,7 +783,7 @@ def cleanup_hero_cache(max_age_hours: int = 24):
 async def periodic_cleanup(context: ContextTypes.DEFAULT_TYPE):
     await cleanup_threads()
     cleanup_hero_cache()
-    CHAOS.cleanup()
+    CHAOS.cleanup(settings.chaos_cleanup_max_age_hours)
 
 
 async def silence_watchdog(context: ContextTypes.DEFAULT_TYPE):
