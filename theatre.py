@@ -7,9 +7,10 @@ import time
 import contextlib
 from collections import defaultdict
 from pathlib import Path
+import logging
+import logger
 
 from config import settings
-from logger import logger
 
 try:
     from openai import (
@@ -25,6 +26,8 @@ except ImportError as e:
 
 MODEL = settings.openai_model
 TEMPERATURE = settings.openai_temperature
+
+logger = logging.getLogger(__name__)
 
 client = OpenAI()
 
