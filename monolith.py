@@ -279,6 +279,7 @@ class ChaosDirector:
         return chosen, mode
 
 CHAOS = ChaosDirector()
+LAST_ACTIVITY: dict[int, float] = {}
 
 # =========================
 # Assistants bootstrap
@@ -773,6 +774,41 @@ async def periodic_cleanup(context: ContextTypes.DEFAULT_TYPE):
     await cleanup_threads()
     cleanup_hero_cache()
 
+
+async def silence_watchdog(context: ContextTypes.DEFAULT_TYPE):
+    now = time.time()
+    for chat_id, ts in list(LAST_ACTIVITY.items()):
+        if now - ts <= 120:
+            continue
+        st = await db_get(chat_id)
+        ch = st.get("chapter")
+        if not ch:
+            continue
+        chapter_text = CHAPTERS.get(ch)
+        participants = guess_participants(chapter_text)
+        if not participants:
+            continue
+        await load_chapter_context_all(chapter_text, participants)
+        hero = random.choice(participants)
+        thread_id = await ensure_thread(chat_id)
+        client.beta.threads.messages.create(thread_id=thread_id, role="user", content="(silence)")
+        scene_prompt = build_scene_prompt(
+            ch,
+            chapter_text,
+            [hero],
+            "(silence)",
+            await compress_history_for_prompt(chat_id),
+        )
+        thread_add_message(thread_id, "user", scene_prompt)
+        await run_and_wait(thread_id)
+        text = thread_last_text(thread_id).strip()
+        if not text:
+            text = f"**{hero}**: (тишина)"
+        chat = await context.bot.get_chat(chat_id)
+        await send_hero_lines(chat, text, context)
+        LAST_ACTIVITY[chat_id] = time.time()
+        CHAOS.silence[str(chat_id)] = 0
+
 # =========================
 # Telegram Handlers
 # =========================
@@ -850,6 +886,7 @@ async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
     chat_id = update.effective_chat.id
+    LAST_ACTIVITY[chat_id] = time.time()
     st = await db_get(chat_id)
     thread_id = await ensure_thread(chat_id)
 
@@ -903,6 +940,7 @@ async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
+    LAST_ACTIVITY[chat_id] = time.time()
     st = await db_get(chat_id)
     msg = (update.message.text or "").strip()
     logger.info("Received message in chat %s: %s", chat_id, msg)
@@ -979,6 +1017,7 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     if app.job_queue:
         app.job_queue.run_repeating(periodic_cleanup, interval=3600, first=3600)
+        app.job_queue.run_repeating(silence_watchdog, interval=10, first=10)
     else:
         print("Job queue disabled; periodic cleanup skipped.")
     loop.run_until_complete(app.bot.set_my_commands([("menu", "CHAPTERS"), ("start", "LETSGO")]))
