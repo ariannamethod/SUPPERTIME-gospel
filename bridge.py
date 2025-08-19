@@ -597,7 +597,7 @@ async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await db_get(chat_id)
 
     if q.data == "no":
-        await q.edit_message_text("Maybe another time.")
+        await q.edit_message_text("Goodbye.")
         return
     if q.data == "ok":
         await db_set(chat_id, accepted=1, chapter=None, dialogue_n=0, last_summary="")
