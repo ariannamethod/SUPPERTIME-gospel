@@ -578,9 +578,9 @@ async def reload_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def reload_heroes_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    from theatre import reload_heroes  # local import to avoid circular
+    from theatre import hero_manager  # local import to avoid circular
 
-    n = reload_heroes()
+    n = hero_manager.reload()
     st = await db_get(update.effective_chat.id)
     if st.get("chapter"):
         chapter_text = CHAPTERS[st["chapter"]]
@@ -755,9 +755,9 @@ def main():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     loop.run_until_complete(db_init())
-    from theatre import reload_heroes
+    from theatre import hero_manager
 
-    reload_heroes()
+    hero_manager.reload()
     loop.run_until_complete(reset_updates())
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
