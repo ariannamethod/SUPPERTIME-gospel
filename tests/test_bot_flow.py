@@ -189,23 +189,25 @@ def test_menu_and_start_cancel_idle(monkeypatch):
     async def run():
         msg = make_message(chat)
         update_menu = SimpleNamespace(message=msg, effective_chat=chat)
-        idle = asyncio.create_task(asyncio.sleep(3600))
-        bridge.IDLE_TASKS[chat_id] = idle
+        bridge.IDLE.last_activity[chat_id] = time.time()
+        idle = bridge.IDLE.start(chat_id, asyncio.sleep(3600))
         await bridge.menu_cmd(update_menu, context)
         await asyncio.sleep(0)
         assert idle.cancelled()
-        assert chat_id not in bridge.IDLE_TASKS
+        assert chat_id not in bridge.IDLE.idle_tasks
+        assert chat_id not in bridge.IDLE.last_activity
         msg.reply_text.assert_awaited()
 
         msg2 = make_message(chat)
         monkeypatch.setattr(bridge, "ensure_thread", AsyncMock())
         update_start = SimpleNamespace(message=msg2, effective_chat=chat)
-        idle2 = asyncio.create_task(asyncio.sleep(3600))
-        bridge.IDLE_TASKS[chat_id] = idle2
+        bridge.IDLE.last_activity[chat_id] = time.time()
+        idle2 = bridge.IDLE.start(chat_id, asyncio.sleep(3600))
         await bridge.start(update_start, context)
         await asyncio.sleep(0)
         assert idle2.cancelled()
-        assert chat_id not in bridge.IDLE_TASKS
+        assert chat_id not in bridge.IDLE.idle_tasks
+        assert chat_id not in bridge.IDLE.last_activity
         msg2.reply_text.assert_awaited()
 
     asyncio.run(run())
@@ -291,7 +293,7 @@ def test_idle_loop_cancelled_after_menu(monkeypatch):
     async def run():
         await db_get(chat_id)
         await db_set(chat_id, accepted=1, chapter=1, dialogue_n=0, last_summary="")
-        bridge.LAST_ACTIVITY[chat_id] = time.time() - bridge.INACTIVITY_TIMEOUT - 1
+        bridge.IDLE.last_activity[chat_id] = time.time() - bridge.INACTIVITY_TIMEOUT - 1
         monkeypatch.setattr(bridge, "ensure_thread", AsyncMock(return_value="thread-1"))
         monkeypatch.setattr(bridge, "load_chapter_context_all", AsyncMock())
         monkeypatch.setattr(bridge, "thread_add_message", lambda *a, **k: None)
@@ -307,7 +309,7 @@ def test_idle_loop_cancelled_after_menu(monkeypatch):
 
         await bridge.silence_watchdog(context)
 
-        idle = bridge.IDLE_TASKS.get(chat_id)
+        idle = bridge.IDLE.idle_tasks.get(chat_id)
         assert idle is not None and not idle.done()
 
         msg = make_message(chat)
@@ -316,7 +318,8 @@ def test_idle_loop_cancelled_after_menu(monkeypatch):
         await asyncio.sleep(0)
 
         assert idle.cancelled()
-        assert chat_id not in bridge.IDLE_TASKS
+        assert chat_id not in bridge.IDLE.idle_tasks
+        assert chat_id not in bridge.IDLE.last_activity
 
     asyncio.run(run())
 
@@ -348,7 +351,7 @@ def test_on_text_sends_pre_message(monkeypatch):
         update = SimpleNamespace(message=user_msg, effective_chat=chat)
         context = SimpleNamespace()
 
-        bridge.LAST_ACTIVITY[chat_id] = time.time() - bridge.INACTIVITY_TIMEOUT - 1
+        bridge.IDLE.last_activity[chat_id] = time.time() - bridge.INACTIVITY_TIMEOUT - 1
 
         await bridge.on_text(update, context)
 
@@ -499,8 +502,7 @@ def test_no_send_when_chapter_changes_during_wait(monkeypatch):
         monkeypatch.setattr(bridge, "send_hero_lines", send_mock)
         monkeypatch.setattr(bridge, "request_scene", AsyncMock(return_value="**Judas**: hi"))
 
-        idle = asyncio.create_task(asyncio.sleep(3600))
-        bridge.IDLE_TASKS[chat_id] = idle
+        idle = bridge.IDLE.start(chat_id, asyncio.sleep(3600))
 
         async def fake_run_and_wait(thread_id, extra_instructions=None, timeout_s=120):
             await db_set(chat_id, chapter=2)
@@ -517,6 +519,23 @@ def test_no_send_when_chapter_changes_during_wait(monkeypatch):
 
         assert send_mock.await_count == 0
         assert idle.cancelled()
-        assert chat_id not in bridge.IDLE_TASKS
+        assert chat_id not in bridge.IDLE.idle_tasks
+        assert chat_id not in bridge.IDLE.last_activity
+
+    asyncio.run(run())
+
+
+def test_idle_tracker_cleanup():
+    async def run():
+        t1 = bridge.IDLE.start(1, asyncio.sleep(3600))
+        bridge.IDLE.last_activity[1] = time.time()
+        t2 = bridge.IDLE.start(2, asyncio.sleep(3600))
+        bridge.IDLE.last_activity[2] = time.time()
+        await asyncio.sleep(0)
+        bridge.IDLE.cleanup()
+        await asyncio.sleep(0)
+        assert t1.cancelled() and t2.cancelled()
+        assert bridge.IDLE.idle_tasks == {}
+        assert bridge.IDLE.last_activity == {}
 
     asyncio.run(run())
