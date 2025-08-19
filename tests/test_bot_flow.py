@@ -322,3 +322,44 @@ def test_chapter_callback_send_error(monkeypatch):
 
     q.message.delete.assert_not_awaited()
     chat.send_message.assert_awaited_once_with("Failed to load chapter")
+
+
+def test_no_send_when_chapter_changes_during_wait(monkeypatch):
+    chat_id = 424242
+    chat = SimpleNamespace(id=chat_id, send_message=AsyncMock())
+
+    async def run():
+        await monolith.db_get(chat_id)
+        await monolith.db_set(chat_id, accepted=1, chapter=1, dialogue_n=0, last_summary="")
+
+        monkeypatch.setattr(monolith, "ensure_thread", AsyncMock(return_value="thread-1"))
+        monkeypatch.setattr(monolith, "load_chapter_context_all", AsyncMock())
+        monkeypatch.setattr(monolith, "thread_add_message", lambda *a, **k: None)
+        monkeypatch.setattr(monolith, "CHAOS", SimpleNamespace(pick=lambda *a, **k: (["Judas"], "mode")))
+        fake_client = SimpleNamespace(beta=SimpleNamespace(threads=SimpleNamespace(messages=SimpleNamespace(create=MagicMock()))))
+        monkeypatch.setattr(monolith, "client", fake_client)
+
+        send_mock = AsyncMock()
+        monkeypatch.setattr(monolith, "send_hero_lines", send_mock)
+
+        idle = asyncio.create_task(asyncio.sleep(3600))
+        monolith.IDLE_TASKS[chat_id] = idle
+
+        async def fake_run_and_wait(thread_id, extra_instructions=None, timeout_s=120):
+            await monolith.db_set(chat_id, chapter=2)
+
+        monkeypatch.setattr(monolith, "run_and_wait", fake_run_and_wait)
+
+        user_msg = SimpleNamespace(chat=chat, text="hi", message_id=7)
+        user_msg.reply_text = AsyncMock()
+        update = SimpleNamespace(message=user_msg, effective_chat=chat)
+        context = SimpleNamespace()
+
+        await monolith.on_text(update, context)
+        await asyncio.sleep(0)
+
+        assert send_mock.await_count == 0
+        assert idle.cancelled()
+        assert chat_id not in monolith.IDLE_TASKS
+
+    asyncio.run(run())
