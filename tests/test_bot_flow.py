@@ -282,6 +282,7 @@ def test_send_hero_lines_reply_to(monkeypatch):
     calls = chat.send_message.await_args_list
     assert len(calls) == 2
     assert calls[1].kwargs["reply_to_message_id"] == 77
+    typing_msg.delete.assert_awaited_once()
 
 
 def test_send_hero_lines_fallback(monkeypatch):

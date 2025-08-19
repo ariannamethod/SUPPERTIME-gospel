@@ -967,8 +967,13 @@ async def send_hero_lines(
     sent = False
     for name, line in parse_lines(text):
         typing = await chat.send_message(f"{name} is typing…")
-        await context.bot.send_chat_action(chat.id, ChatAction.TYPING)
-        await asyncio.sleep(random.uniform(3, 5))
+        delay = random.uniform(3, 5)
+        elapsed = 0.0
+        while elapsed < delay:
+            await context.bot.send_chat_action(chat.id, ChatAction.TYPING)
+            step = min(4, delay - elapsed)
+            await asyncio.sleep(step)
+            elapsed += step
         await typing.delete()
         header = f"**{name}**"
         await chat.send_message(
