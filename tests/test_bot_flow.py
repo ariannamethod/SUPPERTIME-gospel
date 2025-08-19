@@ -1,5 +1,6 @@
 import os
 import asyncio
+import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -119,3 +120,37 @@ def test_menu_shows_chapters(monkeypatch):
     args, kwargs = msg.reply_text.call_args
     assert args[0] == "YOU CHOOSE:"
     assert isinstance(kwargs.get("reply_markup"), monolith.InlineKeyboardMarkup)
+
+
+def test_on_text_sends_pre_message(monkeypatch):
+    chat_id = 999
+    chat = SimpleNamespace(id=chat_id)
+
+    asyncio.run(monolith.db_get(chat_id))
+    asyncio.run(monolith.db_set(chat_id, accepted=1, chapter=1, dialogue_n=0, last_summary=""))
+
+    monkeypatch.setattr(monolith, "ensure_thread", AsyncMock(return_value="thread-1"))
+    monkeypatch.setattr(monolith, "load_chapter_context_all", AsyncMock())
+    monkeypatch.setattr(monolith, "thread_add_message", lambda *a, **k: None)
+    monkeypatch.setattr(monolith, "run_and_wait", AsyncMock())
+    monkeypatch.setattr(monolith, "thread_last_text", lambda tid: "**Judas**: hi")
+    monkeypatch.setattr(monolith, "CHAOS", SimpleNamespace(pick=lambda *a, **k: (["Judas"], "mode")))
+    fake_client = SimpleNamespace(beta=SimpleNamespace(threads=SimpleNamespace(messages=SimpleNamespace(create=MagicMock()))))
+    monkeypatch.setattr(monolith, "client", fake_client)
+
+    send_mock = AsyncMock()
+    monkeypatch.setattr(monolith, "send_hero_lines", send_mock)
+
+    user_msg = SimpleNamespace(chat=chat, text="hi")
+    user_msg.reply_text = AsyncMock()
+    chat.send_message = AsyncMock()
+    update = SimpleNamespace(message=user_msg, effective_chat=chat)
+    context = SimpleNamespace()
+
+    monolith.LAST_ACTIVITY[chat_id] = time.time() - monolith.INACTIVITY_TIMEOUT - 1
+
+    asyncio.run(monolith.on_text(update, context))
+
+    assert send_mock.await_count == 2
+    first_text = send_mock.await_args_list[0].args[1]
+    assert "опять ты" in first_text
