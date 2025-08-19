@@ -947,6 +947,7 @@ async def send_hero_lines(
     context: ContextTypes.DEFAULT_TYPE,
     reply_to_message_id: int | None = None,
 ):
+    sent = False
     for name, line in parse_lines(text):
         typing = await chat.send_message(f"{name} is typing…")
         await context.bot.send_chat_action(chat.id, ChatAction.TYPING)
@@ -955,6 +956,13 @@ async def send_hero_lines(
         header = f"**{name}**"
         await chat.send_message(
             f"{header}\n{line}",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_to_message_id=reply_to_message_id,
+        )
+        sent = True
+    if not sent and text.strip():
+        await chat.send_message(
+            text,
             parse_mode=ParseMode.MARKDOWN,
             reply_to_message_id=reply_to_message_id,
         )
