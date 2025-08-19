@@ -677,9 +677,9 @@ User just wrote: {user_text or '(silence)'}
 PERSONAS SNAPSHOT (from /heroes files)
 {personas}
 
-Output exactly {len(responders)} blocks — one per listed participant. For each block:
-*Character*
-dialogue line (no leading colon)
+Return exactly {len(responders)} lines, one per listed participant, using this template:
+**Name**: dialogue
+Use Markdown bold for Name, then a colon and a single line of speech. No extra commentary.
 """
     return scene.strip()
 
@@ -826,13 +826,11 @@ async def silence_watchdog(context: ContextTypes.DEFAULT_TYPE):
             "(silence)",
             await compress_history_for_prompt(chat_id),
         )
-        thread_add_message(thread_id, "user", scene_prompt)
-        await run_and_wait(thread_id)
+        text = await request_scene(thread_id, scene_prompt, [hero])
         st_check = await db_get(chat_id)
         if st_check.get("chapter") != ch or not st_check.get("accepted"):
             cancel_idle(chat_id)
             return
-        text = thread_last_text(thread_id).strip()
         if not text:
             text = f"**{hero}**: (тишина)"
         chat = await context.bot.get_chat(chat_id)
@@ -859,13 +857,11 @@ async def silence_watchdog(context: ContextTypes.DEFAULT_TYPE):
                     None,
                     await compress_history_for_prompt(chat_id),
                 )
-                thread_add_message(thread_id, "user", scene_prompt)
-                await run_and_wait(thread_id)
+                text_inner = await request_scene(thread_id, scene_prompt, responders)
                 st_post = await db_get(chat_id)
                 if st_post.get("chapter") != ch or not st_post.get("accepted"):
                     cancel_idle(chat_id)
                     return
-                text_inner = thread_last_text(thread_id).strip()
                 if not text_inner:
                     text_inner = "\n".join(f"**{r}**: (тишина)" for r in responders)
                 await send_hero_lines(chat, text_inner, context, participants=responders)
@@ -967,6 +963,28 @@ def parse_lines(text: str):
         yield current_name, "\n".join(buffer).strip()
 
 
+def is_valid_scene(text: str, participants: list[str]) -> bool:
+    lines = list(parse_lines(text))
+    if len(lines) != len(participants):
+        return False
+    return all(name in participants for name, _ in lines)
+
+
+async def request_scene(thread_id: str, prompt: str, participants: list[str], retries: int = 2) -> str:
+    msg = prompt
+    for _ in range(retries):
+        thread_add_message(thread_id, "user", msg)
+        await run_and_wait(thread_id)
+        text = thread_last_text(thread_id).strip()
+        if is_valid_scene(text, participants):
+            return text
+        msg = (
+            f"Respond with exactly {len(participants)} lines in the format '**Name**: dialogue' using only these names: "
+            f"{', '.join(participants)}."
+        )
+    return text
+
+
 async def send_hero_lines(
     chat,
     text: str,
@@ -975,19 +993,22 @@ async def send_hero_lines(
     participants: list[str] | None = None,
 ):
     lines = list(parse_lines(text))
-    if participants is not None and len(lines) != len(participants):
-        logger.warning(
-            "Expected %d lines for participants %s, got %d; using Narrator fallback",
-            len(participants),
-            participants,
-            len(lines),
-        )
-        await chat.send_message(
-            f"**Narrator**\n{text}",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_to_message_id=reply_to_message_id,
-        )
-        return
+    if participants is not None:
+        names = [n for n, _ in lines]
+        if len(lines) != len(participants) or any(n not in participants for n in names):
+            logger.warning(
+                "Expected %d lines for participants %s, got %d (%s); using Narrator fallback",
+                len(participants),
+                participants,
+                len(lines),
+                names,
+            )
+            await chat.send_message(
+                f"**Narrator**\n{text}",
+                parse_mode=ParseMode.MARKDOWN,
+                reply_to_message_id=reply_to_message_id,
+            )
+            return
     sent = False
     for name, line in lines:
         typing = await chat.send_message(f"{name} is typing…")
@@ -1056,14 +1077,14 @@ async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         responders, mode = CHAOS.pick(str(chat_id), chapter_text, "(enter)")
         responders = [r for r in responders if r in participants] or participants[: min(3, len(participants))]
 
-        scene_prompt = build_scene_prompt(ch, chapter_text, responders, "(enters the room)", await compress_history_for_prompt(chat_id))
-        thread_add_message(thread_id, "user", scene_prompt)
-        await run_and_wait(thread_id)
+        scene_prompt = build_scene_prompt(
+            ch, chapter_text, responders, "(enters the room)", await compress_history_for_prompt(chat_id)
+        )
+        text = await request_scene(thread_id, scene_prompt, responders)
         st_check = await db_get(chat_id)
         if st_check.get("chapter") != ch or not st_check.get("accepted"):
             cancel_idle(chat_id)
             return
-        text = thread_last_text(thread_id).strip()
         if not text:
             text = "\n".join(f"**{r}**: (тишина)" for r in responders)
         glitch = MARKOV.glitch()
@@ -1135,15 +1156,15 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     logger.info("Posting raw user message to thread %s", thread_id)
     client.beta.threads.messages.create(thread_id=thread_id, role="user", content=f"USER SAID: {msg}")
-    scene_prompt = build_scene_prompt(ch, chapter_text, responders, msg, await compress_history_for_prompt(chat_id))
-    thread_add_message(thread_id, "user", scene_prompt)
-    await run_and_wait(thread_id)
+    scene_prompt = build_scene_prompt(
+        ch, chapter_text, responders, msg, await compress_history_for_prompt(chat_id)
+    )
+    text = await request_scene(thread_id, scene_prompt, responders)
     st_check = await db_get(chat_id)
     if st_check.get("chapter") != ch or not st_check.get("accepted"):
         cancel_idle(chat_id)
         return
 
-    text = thread_last_text(thread_id).strip()
     if not text:
         text = "\n".join(f"**{r}**: (тишина)" for r in responders)
     glitch = MARKOV.glitch()
