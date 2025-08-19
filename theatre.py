@@ -11,7 +11,12 @@ from config import settings
 from logger import logger
 
 try:
-    from openai import OpenAI
+    from openai import (
+        OpenAI,
+        APIConnectionError,
+        APITimeoutError,
+        RateLimitError as OpenAIRetryAfter,
+    )
 except ImportError as e:
     raise RuntimeError(
         "Install openai>=1.0:  pip install openai python-telegram-bot openai"
@@ -71,7 +76,7 @@ class Hero:
         self.reply: str = sections.get("REPLY", "")
         self.ctx: str = ""
 
-    async def load_chapter_context(self, md_text: str, md_hash: str):
+    async def load_chapter_context(self, md_text: str, md_hash: str, retries: int = 3):
         """Initialize hero-specific context from chapter markdown."""
         cache_key = (self.name, md_hash)
         cache_file = hero_manager.cache_dir / f"{self.name}_{md_hash}.txt"
@@ -95,30 +100,77 @@ class Hero:
             self.ctx = ""
             return
         prompt = f"{instr}\n\n---\n{md_text}\n---"[:5000]
-        try:
-            logger.info("Requesting OpenAI context for %s", self.name)
-            resp = await asyncio.to_thread(
-                client.responses.create, model=MODEL, input=prompt, temperature=TEMPERATURE
-            )
-            self.ctx = (resp.output_text or "").strip()
-            hero_manager.ctx_cache[cache_key] = self.ctx
+        delay = 1.0
+        for attempt in range(1, retries + 1):
             try:
-                cache_file.write_text(self.ctx, encoding="utf-8")
-            except (OSError, UnicodeEncodeError) as e:
-                logger.exception(
-                    "Failed to write hero cache for %s to %s: %s",
+                logger.info(
+                    "Requesting OpenAI context for %s (attempt %d/%d)",
                     self.name,
-                    cache_file,
+                    attempt,
+                    retries,
+                )
+                resp = await asyncio.to_thread(
+                    client.responses.create,
+                    model=MODEL,
+                    input=prompt,
+                    temperature=TEMPERATURE,
+                )
+                self.ctx = (resp.output_text or "").strip()
+                hero_manager.ctx_cache[cache_key] = self.ctx
+                try:
+                    cache_file.write_text(self.ctx, encoding="utf-8")
+                except (OSError, UnicodeEncodeError) as e:
+                    logger.exception(
+                        "Failed to write hero cache for %s to %s: %s",
+                        self.name,
+                        cache_file,
+                        e,
+                    )
+                return
+            except APIConnectionError as e:
+                logger.warning(
+                    "Context request connection error for %s (attempt %d/%d): %s",
+                    self.name,
+                    attempt,
+                    retries,
                     e,
                 )
-        except Exception as e:
-            logger.exception(
-                "OpenAI context load failed for %s (hash %s): %s",
-                self.name,
-                md_hash,
-                e,
-            )
-            self.ctx = ""
+                await asyncio.sleep(delay)
+                delay *= 2
+            except APITimeoutError as e:
+                logger.warning(
+                    "Context request timeout for %s (attempt %d/%d): %s",
+                    self.name,
+                    attempt,
+                    retries,
+                    e,
+                )
+                await asyncio.sleep(delay)
+                delay *= 2
+            except OpenAIRetryAfter as e:
+                wait = getattr(e, "retry_after", delay)
+                logger.warning(
+                    "Context request rate limited for %s (attempt %d/%d): %s",
+                    self.name,
+                    attempt,
+                    retries,
+                    e,
+                )
+                await asyncio.sleep(wait)
+                delay = max(delay * 2, wait * 2)
+            except Exception as e:
+                logger.exception(
+                    "OpenAI context load failed for %s (hash %s): %s",
+                    self.name,
+                    md_hash,
+                    e,
+                )
+                self.ctx = ""
+                return
+        logger.error(
+            "Giving up on context load for %s after %d attempts", self.name, retries
+        )
+        self.ctx = ""
 
 
 def parse_prompt_sections(txt: str) -> dict[str, str]:
