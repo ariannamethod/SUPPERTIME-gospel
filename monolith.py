@@ -966,7 +966,7 @@ async def send_hero_lines(
         elapsed = 0.0
         while elapsed < delay:
             await context.bot.send_chat_action(chat.id, ChatAction.TYPING)
-            step = min(4, delay - elapsed)
+            step = min(1, delay - elapsed)
             await asyncio.sleep(step)
             elapsed += step
         await typing.delete()
