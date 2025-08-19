@@ -33,3 +33,17 @@ def test_parse_lines_markdown_heading_block():
     text = ("# Judas\n" "first\n" "## Mary  ##\n" "second")
     assert list(parse_lines(text)) == [("Judas", "first"), ("Mary", "second")]
 
+
+def test_parse_lines_name_says_variants():
+    text = "Judas says hello\nMary says: bye"
+    assert list(parse_lines(text)) == [("Judas", "hello"), ("Mary", "bye")]
+
+
+def test_parse_lines_bullet_markers_and_quotes():
+    text = "- 'Judas': hi\n* \"Mary\" — bye\n• Peter says greetings"
+    assert list(parse_lines(text)) == [
+        ("Judas", "hi"),
+        ("Mary", "bye"),
+        ("Peter", "greetings"),
+    ]
+
