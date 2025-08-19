@@ -924,33 +924,28 @@ async def reload_heroes_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def parse_lines(text: str):
-    name_line = re.compile(r"^\*{1,2}(.+?)\*{1,2}$")
-    inline = re.compile(r"^\*{1,2}(.+?)\*{1,2}:\s*(.*)")
-    plain_inline = re.compile(r"^(?!\*{1,2})([^:]+?):\s*(.*)")
+    sep = r"[:\-\–—]"
+    name_line_star = re.compile(r"^\*{1,2}\s*(.+?)\s*\*{1,2}$")
+    name_line_heading = re.compile(r"^\s{0,3}#{1,6}\s*(.+?)\s*#*\s*$")
+    inline_star = re.compile(rf"^\*{{1,2}}\s*(.+?)\s*\*{{1,2}}\s*{sep}\s*(.*)")
+    inline_plain = re.compile(rf"^(?!\*{{1,2}})(.+?)\s*{sep}\s*(.*)")
     current_name = None
     buffer: list[str] = []
     for raw in text.splitlines():
         line = raw.rstrip()
         stripped = line.strip()
-        m_inline = inline.match(stripped)
+        m_inline = inline_star.match(stripped) or inline_plain.match(stripped)
         if m_inline:
             if current_name and buffer:
                 yield current_name, "\n".join(buffer).strip()
-            yield m_inline.group(1), m_inline.group(2)
+            yield m_inline.group(1).strip(), m_inline.group(2)
             current_name, buffer = None, []
             continue
-        m_plain = plain_inline.match(stripped)
-        if m_plain:
-            if current_name and buffer:
-                yield current_name, "\n".join(buffer).strip()
-            yield m_plain.group(1), m_plain.group(2)
-            current_name, buffer = None, []
-            continue
-        m_name = name_line.match(stripped)
+        m_name = name_line_star.match(stripped) or name_line_heading.match(stripped)
         if m_name:
             if current_name and buffer:
                 yield current_name, "\n".join(buffer).strip()
-            current_name = m_name.group(1)
+            current_name = m_name.group(1).strip()
             buffer = []
         elif current_name is not None:
             buffer.append(line)
