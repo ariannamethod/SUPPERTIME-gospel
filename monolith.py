@@ -918,18 +918,27 @@ async def reload_heroes_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def parse_lines(text: str):
     name_line = re.compile(r"^\*{1,2}(.+?)\*{1,2}$")
     inline = re.compile(r"^\*{1,2}(.+?)\*{1,2}:\s*(.*)")
+    plain_inline = re.compile(r"^(?!\*{1,2})([^:]+?):\s*(.*)")
     current_name = None
     buffer: list[str] = []
     for raw in text.splitlines():
         line = raw.rstrip()
-        m_inline = inline.match(line.strip())
+        stripped = line.strip()
+        m_inline = inline.match(stripped)
         if m_inline:
             if current_name and buffer:
                 yield current_name, "\n".join(buffer).strip()
             yield m_inline.group(1), m_inline.group(2)
             current_name, buffer = None, []
             continue
-        m_name = name_line.match(line.strip())
+        m_plain = plain_inline.match(stripped)
+        if m_plain:
+            if current_name and buffer:
+                yield current_name, "\n".join(buffer).strip()
+            yield m_plain.group(1), m_plain.group(2)
+            current_name, buffer = None, []
+            continue
+        m_name = name_line.match(stripped)
         if m_name:
             if current_name and buffer:
                 yield current_name, "\n".join(buffer).strip()
