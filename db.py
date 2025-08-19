@@ -1,8 +1,11 @@
 import asyncio
 import aiosqlite
+import logging
+import logger
 
-from logger import logger
 from config import settings
+
+logger = logging.getLogger(__name__)
 
 DB_PATH = settings.db_path
 SUMMARY_EVERY = settings.summary_every

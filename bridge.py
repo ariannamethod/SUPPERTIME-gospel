@@ -5,8 +5,9 @@ import contextlib
 import time
 import os
 from pathlib import Path
+import logging
+import logger
 
-from logger import logger
 from config import settings
 
 from telegram import (
@@ -45,6 +46,8 @@ from db import db_get, db_set, db_init, SUMMARY_EVERY
 MODEL = settings.openai_model
 TEMPERATURE = settings.openai_temperature
 TELEGRAM_TOKEN = settings.telegram_token
+
+logger = logging.getLogger(__name__)
 
 OPENAI_TIMEOUT = 30
 OPENAI_RETRY_ATTEMPTS = 3
