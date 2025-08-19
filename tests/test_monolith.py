@@ -56,6 +56,32 @@ def test_parse_lines_block_format():
     ]
 
 
+def test_parse_lines_plain_inline():
+    text = (
+        "Judas: betrayal whispers\n"
+        "Peter: steadfast response"
+    )
+    assert list(parse_lines(text)) == [
+        ("Judas", "betrayal whispers"),
+        ("Peter", "steadfast response"),
+    ]
+
+
+def test_parse_lines_mixed_format():
+    text = (
+        "*Judas*\n"
+        "betrayal whispers\n"
+        "Peter: steadfast response\n"
+        "*Mary*\n"
+        "quiet"
+    )
+    assert list(parse_lines(text)) == [
+        ("Judas", "betrayal whispers"),
+        ("Peter", "steadfast response"),
+        ("Mary", "quiet"),
+    ]
+
+
 def test_main_checks_env(monkeypatch):
     import monolith
 
