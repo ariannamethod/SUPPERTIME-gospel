@@ -836,7 +836,7 @@ async def silence_watchdog(context: ContextTypes.DEFAULT_TYPE):
         if not text:
             text = f"**{hero}**: (тишина)"
         chat = await context.bot.get_chat(chat_id)
-        await send_hero_lines(chat, text, context)
+        await send_hero_lines(chat, text, context, participants=[hero])
         bot_ts = time.time()
         LAST_ACTIVITY[chat_id] = bot_ts
         CHAOS.silence[str(chat_id)] = 0
@@ -868,7 +868,7 @@ async def silence_watchdog(context: ContextTypes.DEFAULT_TYPE):
                 text_inner = thread_last_text(thread_id).strip()
                 if not text_inner:
                     text_inner = "\n".join(f"**{r}**: (тишина)" for r in responders)
-                await send_hero_lines(chat, text_inner, context)
+                await send_hero_lines(chat, text_inner, context, participants=responders)
                 bot_ts = time.time()
                 LAST_ACTIVITY[chat_id] = bot_ts
 
@@ -972,9 +972,24 @@ async def send_hero_lines(
     text: str,
     context: ContextTypes.DEFAULT_TYPE,
     reply_to_message_id: int | None = None,
+    participants: list[str] | None = None,
 ):
+    lines = list(parse_lines(text))
+    if participants is not None and len(lines) != len(participants):
+        logger.warning(
+            "Expected %d lines for participants %s, got %d; using Narrator fallback",
+            len(participants),
+            participants,
+            len(lines),
+        )
+        await chat.send_message(
+            f"**Narrator**\n{text}",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_to_message_id=reply_to_message_id,
+        )
+        return
     sent = False
-    for name, line in parse_lines(text):
+    for name, line in lines:
         typing = await chat.send_message(f"{name} is typing…")
         delay = random.uniform(3, 5)
         elapsed = 0.0
@@ -1054,7 +1069,7 @@ async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         glitch = MARKOV.glitch()
 
         try:
-            await send_hero_lines(q.message.chat, text, context)
+            await send_hero_lines(q.message.chat, text, context, participants=responders)
         except Exception:
             logger.exception("Failed to send hero lines for chat %s", chat_id)
             if hasattr(q.message.chat, "send_message"):
@@ -1100,6 +1115,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pre_text,
             context,
             reply_to_message_id=update.message.message_id,
+            participants=[hero],
         )
 
     responders, mode = CHAOS.pick(str(chat_id), chapter_text, msg)
@@ -1137,6 +1153,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text,
         context,
         reply_to_message_id=update.message.message_id,
+        participants=responders,
     )
     if glitch:
         await update.message.chat.send_message(glitch, parse_mode=ParseMode.MARKDOWN)
