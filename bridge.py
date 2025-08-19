@@ -591,11 +591,10 @@ async def reload_heroes_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
-    await q.answer()
+    await q.answer(cache_time=1)
     chat_id = update.effective_chat.id
     LAST_ACTIVITY[chat_id] = time.time()
     await db_get(chat_id)
-    thread_id = await ensure_thread(chat_id)
 
     if q.data == "no":
         await q.edit_message_text("Maybe another time.")
@@ -613,34 +612,39 @@ async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if ch not in CHAPTERS:
             await q.message.chat.send_message("Unknown chapter")
             return
-        await db_set(chat_id, chapter=ch, dialogue_n=0, last_summary="")
-        chapter_text = CHAPTERS[ch]
-        participants = guess_participants(chapter_text)
-        await load_chapter_context_all(chapter_text, participants)
-        responders, mode = CHAOS.pick(str(chat_id), chapter_text, "(enter)")
-        responders = [r for r in responders if r in participants] or participants[: min(3, len(participants))]
-        scene_prompt = build_scene_prompt(
-            ch, chapter_text, responders, "(enters the room)", await compress_history_for_prompt(chat_id)
-        )
-        thread_add_message(thread_id, "user", scene_prompt)
-        await run_and_wait(thread_id)
-        text = await request_scene(thread_id, responders)
-        st_check = await db_get(chat_id)
-        if st_check.get("chapter") != ch or not st_check.get("accepted"):
-            cancel_idle(chat_id)
-            return
-        if not text:
-            text = "\n".join(f"**{r}**: (тишина)" for r in responders)
-        glitch = MARKOV.glitch()
-        try:
-            await send_hero_lines(q.message.chat, text, context, participants=responders)
-        except Exception:
-            logger.exception("Failed to send hero lines for chat %s", chat_id)
-            await q.message.chat.send_message("Failed to load chapter")
-            return
-        await q.message.delete()
-        if glitch:
-            await q.message.chat.send_message(glitch, parse_mode=ParseMode.MARKDOWN)
+
+        async def handle_chapter():
+            thread_id = await ensure_thread(chat_id)
+            await db_set(chat_id, chapter=ch, dialogue_n=0, last_summary="")
+            chapter_text = CHAPTERS[ch]
+            participants = guess_participants(chapter_text)
+            await load_chapter_context_all(chapter_text, participants)
+            responders, _ = CHAOS.pick(str(chat_id), chapter_text, "(enter)")
+            responders = [r for r in responders if r in participants] or participants[: min(3, len(participants))]
+            scene_prompt = build_scene_prompt(
+                ch, chapter_text, responders, "(enters the room)", await compress_history_for_prompt(chat_id)
+            )
+            thread_add_message(thread_id, "user", scene_prompt)
+            await run_and_wait(thread_id)
+            text = await request_scene(thread_id, responders)
+            st_check = await db_get(chat_id)
+            if st_check.get("chapter") != ch or not st_check.get("accepted"):
+                cancel_idle(chat_id)
+                return
+            if not text:
+                text = "\n".join(f"**{r}**: (тишина)" for r in responders)
+            glitch = MARKOV.glitch()
+            try:
+                await send_hero_lines(q.message.chat, text, context, participants=responders)
+            except Exception:
+                logger.exception("Failed to send hero lines for chat %s", chat_id)
+                await q.message.chat.send_message("Failed to load chapter")
+                return
+            await q.message.delete()
+            if glitch:
+                await q.message.chat.send_message(glitch, parse_mode=ParseMode.MARKDOWN)
+
+        asyncio.create_task(handle_chapter())
         return
 
 
@@ -682,7 +686,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             participants=[hero],
         )
 
-    responders, mode = CHAOS.pick(str(chat_id), chapter_text, msg)
+    responders, _ = CHAOS.pick(str(chat_id), chapter_text, msg)
     responders = [r for r in responders if r in participants] or participants[: min(3, len(participants))]
     mentioned = [n for n in detect_names(msg) if n in participants]
     for n in mentioned:

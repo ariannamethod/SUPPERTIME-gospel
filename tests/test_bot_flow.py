@@ -32,6 +32,23 @@ def make_callback_query(chat_id, chat, data):
     return q
 
 
+async def run_on_click(update, context, monkeypatch):
+    """Run on_click and wait for spawned task to finish."""
+    orig_create_task = asyncio.create_task
+    holder = {}
+
+    def capture(coro):
+        task = orig_create_task(coro)
+        holder["task"] = task
+        return task
+
+    monkeypatch.setattr(asyncio, "create_task", capture)
+    await bridge.on_click(update, context)
+    task = holder.get("task")
+    if task:
+        await task
+
+
 def test_full_user_flow(monkeypatch):
     chat_id = 12345
     chat = SimpleNamespace(id=chat_id)
@@ -68,7 +85,7 @@ def test_full_user_flow(monkeypatch):
     chapter_text = bridge.CHAPTERS[1]
     mock_load = bridge.load_chapter_context_all
     update_ch = SimpleNamespace(callback_query=make_callback_query(chat_id, chat, "ch_1"), effective_chat=chat)
-    asyncio.run(bridge.on_click(update_ch, context))
+    asyncio.run(run_on_click(update_ch, context, monkeypatch))
     assert mock_load.awaited
     called_text = mock_load.await_args.args[0]
     assert called_text == chapter_text
@@ -112,6 +129,33 @@ def test_unknown_chapter_callback(monkeypatch):
     chat.send_message.assert_awaited_once_with("Unknown chapter")
     state_after = asyncio.run(db_get(chat_id))
     assert state_after == state_before
+
+
+def test_single_callback_loads_chapter(monkeypatch):
+    chat_id = 9090
+    chat = SimpleNamespace(id=chat_id)
+    asyncio.run(db_set(chat_id, accepted=1, chapter=None, dialogue_n=0, last_summary=""))
+
+    monkeypatch.setattr(bridge, "ensure_thread", AsyncMock(return_value="thread-1"))
+    mock_load = AsyncMock()
+    monkeypatch.setattr(bridge, "load_chapter_context_all", mock_load)
+    monkeypatch.setattr(bridge, "thread_add_message", lambda *a, **k: None)
+    monkeypatch.setattr(bridge, "run_and_wait", AsyncMock())
+    monkeypatch.setattr(bridge, "request_scene", AsyncMock(return_value="**Judas**: hi"))
+    monkeypatch.setattr(bridge, "send_hero_lines", AsyncMock())
+    monkeypatch.setattr(bridge, "CHAOS", SimpleNamespace(pick=lambda *a, **k: (["Judas"], "mode")))
+    fake_client = SimpleNamespace(beta=SimpleNamespace(threads=SimpleNamespace(messages=SimpleNamespace(create=MagicMock()))))
+    monkeypatch.setattr(bridge, "client", fake_client)
+
+    update = SimpleNamespace(
+        callback_query=make_callback_query(chat_id, chat, "ch_1"), effective_chat=chat
+    )
+    context = SimpleNamespace()
+    asyncio.run(run_on_click(update, context, monkeypatch))
+
+    assert mock_load.await_count == 1
+    state = asyncio.run(db_get(chat_id))
+    assert state["chapter"] == 1
 
 
 def test_menu_shows_chapters(monkeypatch):
@@ -411,7 +455,7 @@ def test_chapter_callback_send_error(monkeypatch):
     update = SimpleNamespace(callback_query=q, effective_chat=chat)
     context = SimpleNamespace()
 
-    asyncio.run(bridge.on_click(update, context))
+    asyncio.run(run_on_click(update, context, monkeypatch))
 
     q.message.delete.assert_not_awaited()
     chat.send_message.assert_awaited_once_with("Failed to load chapter")
