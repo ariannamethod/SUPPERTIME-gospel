@@ -154,6 +154,44 @@ def test_menu_and_start_cancel_idle(monkeypatch):
     asyncio.run(run())
 
 
+def test_idle_loop_cancelled_after_menu(monkeypatch):
+    chat_id = 3030
+    chat = SimpleNamespace(id=chat_id)
+    context = SimpleNamespace()
+
+    async def run():
+        await monolith.db_get(chat_id)
+        await monolith.db_set(chat_id, accepted=1, chapter=1, dialogue_n=0, last_summary="")
+        monolith.LAST_ACTIVITY[chat_id] = time.time() - monolith.INACTIVITY_TIMEOUT - 1
+        monkeypatch.setattr(monolith, "ensure_thread", AsyncMock(return_value="thread-1"))
+        monkeypatch.setattr(monolith, "load_chapter_context_all", AsyncMock())
+        monkeypatch.setattr(monolith, "thread_add_message", lambda *a, **k: None)
+        monkeypatch.setattr(monolith, "run_and_wait", AsyncMock())
+        monkeypatch.setattr(monolith, "thread_last_text", lambda tid: "**Judas**: hi")
+        monkeypatch.setattr(monolith, "CHAOS", SimpleNamespace(pick=lambda *a, **k: (["Judas"], "mode"), silence={}))
+        send_mock = AsyncMock()
+        monkeypatch.setattr(monolith, "send_hero_lines", send_mock)
+        fake_client = SimpleNamespace(beta=SimpleNamespace(threads=SimpleNamespace(messages=SimpleNamespace(create=MagicMock()))))
+        monkeypatch.setattr(monolith, "client", fake_client)
+
+        context.bot = SimpleNamespace(get_chat=AsyncMock(return_value=chat))
+
+        await monolith.silence_watchdog(context)
+
+        idle = monolith.IDLE_TASKS.get(chat_id)
+        assert idle is not None and not idle.done()
+
+        msg = make_message(chat)
+        update_menu = SimpleNamespace(message=msg, effective_chat=chat)
+        await monolith.menu_cmd(update_menu, context)
+        await asyncio.sleep(0)
+
+        assert idle.cancelled()
+        assert chat_id not in monolith.IDLE_TASKS
+
+    asyncio.run(run())
+
+
 def test_on_text_sends_pre_message(monkeypatch):
     chat_id = 999
     chat = SimpleNamespace(id=chat_id)
