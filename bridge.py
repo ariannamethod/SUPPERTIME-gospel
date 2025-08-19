@@ -752,9 +752,12 @@ def main():
         raise RuntimeError("Set TELEGRAM_TOKEN env var")
     if not settings.openai_api_key:
         raise RuntimeError("Set OPENAI_API_KEY env var")
-    asyncio.run(db_init())
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
+    loop.run_until_complete(db_init())
+    from theatre import reload_heroes
+
+    reload_heroes()
     loop.run_until_complete(reset_updates())
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
