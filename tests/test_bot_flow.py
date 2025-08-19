@@ -112,7 +112,7 @@ def test_menu_shows_chapters(monkeypatch):
     chat_id = 777
     chat = SimpleNamespace(id=chat_id)
     msg = make_message(chat)
-    update = SimpleNamespace(message=msg)
+    update = SimpleNamespace(message=msg, effective_chat=chat)
     context = SimpleNamespace()
 
     asyncio.run(monolith.menu_cmd(update, context))
@@ -120,6 +120,36 @@ def test_menu_shows_chapters(monkeypatch):
     args, kwargs = msg.reply_text.call_args
     assert args[0] == "YOU CHOOSE:"
     assert isinstance(kwargs.get("reply_markup"), monolith.InlineKeyboardMarkup)
+
+
+def test_menu_and_start_cancel_idle(monkeypatch):
+    chat_id = 1010
+    chat = SimpleNamespace(id=chat_id)
+    context = SimpleNamespace()
+
+    async def run():
+        msg = make_message(chat)
+        update_menu = SimpleNamespace(message=msg, effective_chat=chat)
+        idle = asyncio.create_task(asyncio.sleep(3600))
+        monolith.IDLE_TASKS[chat_id] = idle
+        await monolith.menu_cmd(update_menu, context)
+        await asyncio.sleep(0)
+        assert idle.cancelled()
+        assert chat_id not in monolith.IDLE_TASKS
+        msg.reply_text.assert_awaited()
+
+        msg2 = make_message(chat)
+        monkeypatch.setattr(monolith, "ensure_thread", AsyncMock())
+        update_start = SimpleNamespace(message=msg2, effective_chat=chat)
+        idle2 = asyncio.create_task(asyncio.sleep(3600))
+        monolith.IDLE_TASKS[chat_id] = idle2
+        await monolith.start(update_start, context)
+        await asyncio.sleep(0)
+        assert idle2.cancelled()
+        assert chat_id not in monolith.IDLE_TASKS
+        msg2.reply_text.assert_awaited()
+
+    asyncio.run(run())
 
 
 def test_on_text_sends_pre_message(monkeypatch):
