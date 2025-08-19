@@ -4,6 +4,8 @@ import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
+from telegram.constants import ParseMode
+
 # Ensure environment variables to avoid network calls
 os.environ.setdefault("ASSISTANT_ID", "test")
 os.environ.setdefault("TELEGRAM_TOKEN", "test-token")
@@ -280,6 +282,18 @@ def test_send_hero_lines_reply_to(monkeypatch):
     calls = chat.send_message.await_args_list
     assert len(calls) == 2
     assert calls[1].kwargs["reply_to_message_id"] == 77
+
+
+def test_send_hero_lines_fallback(monkeypatch):
+    chat = SimpleNamespace(id=1, send_message=AsyncMock())
+    context = SimpleNamespace(bot=SimpleNamespace(send_chat_action=AsyncMock()))
+    monkeypatch.setattr(asyncio, "sleep", AsyncMock())
+
+    asyncio.run(monolith.send_hero_lines(chat, "plain text", context))
+
+    chat.send_message.assert_awaited_once_with(
+        "plain text", parse_mode=ParseMode.MARKDOWN, reply_to_message_id=None
+    )
 
 
 def test_chapter_callback_send_error(monkeypatch):
