@@ -453,6 +453,7 @@ def test_chapter_callback_send_error(monkeypatch):
         chat_id = 555
         chat = SimpleNamespace(id=chat_id, send_message=AsyncMock())
 
+        await db_get(chat_id)  # ensure row exists
         await db_set(chat_id, accepted=1, chapter=None, dialogue_n=0, last_summary="")
 
         monkeypatch.setattr(bridge, "ensure_thread", AsyncMock(return_value="thread-1"))

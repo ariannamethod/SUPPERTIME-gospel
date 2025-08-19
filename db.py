@@ -79,4 +79,3 @@ async def db_set(chat_id, **fields):
         logger.exception("DB set failed for chat_id %s: %s", chat_id, e)
 
 
-asyncio.run(db_init())

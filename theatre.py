@@ -203,11 +203,6 @@ def reload_heroes():
             p.unlink()
     return load_heroes()
 
-
-# Load heroes at import
-load_heroes()
-
-
 async def load_chapter_context_all(md_text: str, names: list[str]):
     """Notify selected heroes about the chosen chapter in the background."""
     md_hash = hashlib.sha1(md_text.encode("utf-8")).hexdigest()
