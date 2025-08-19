@@ -71,3 +71,35 @@ def test_partial_unrecognized_fallback(monkeypatch, caplog):
         reply_to_message_id=None,
     )
     assert "Expected 2 lines" in caplog.text
+
+
+def test_quote_line_unrecognized(monkeypatch, caplog):
+    chat = MagicMock(id=1, send_message=AsyncMock())
+    context = MagicMock(bot=MagicMock(send_chat_action=AsyncMock()))
+    monkeypatch.setattr(asyncio, "sleep", AsyncMock())
+
+    text = '"Judas" hi'
+    with caplog.at_level("WARNING"):
+        asyncio.run(send_hero_lines(chat, text, context, participants=["Judas"]))
+    chat.send_message.assert_awaited_once_with(
+        f"**Narrator**\n{text}",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_to_message_id=None,
+    )
+    assert "Expected 1 lines" in caplog.text
+
+
+def test_list_marker_unrecognized(monkeypatch, caplog):
+    chat = MagicMock(id=1, send_message=AsyncMock())
+    context = MagicMock(bot=MagicMock(send_chat_action=AsyncMock()))
+    monkeypatch.setattr(asyncio, "sleep", AsyncMock())
+
+    text = "- Judas hi"
+    with caplog.at_level("WARNING"):
+        asyncio.run(send_hero_lines(chat, text, context, participants=["Judas"]))
+    chat.send_message.assert_awaited_once_with(
+        f"**Narrator**\n{text}",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_to_message_id=None,
+    )
+    assert "Expected 1 lines" in caplog.text

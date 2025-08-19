@@ -47,3 +47,15 @@ def test_parse_lines_bullet_markers_and_quotes():
         ("Peter", "greetings"),
     ]
 
+
+def test_parse_lines_name_with_spaces_and_quoted_answer():
+    text = '**Mary Magdalene**: She said "Hello" loudly'
+    assert list(parse_lines(text)) == [
+        ("Mary Magdalene", 'She said "Hello" loudly')
+    ]
+
+
+def test_parse_lines_list_marker_with_space_in_name():
+    text = "- Mary Magdalene says hello"
+    assert list(parse_lines(text)) == [("Mary Magdalene", "hello")]
+
