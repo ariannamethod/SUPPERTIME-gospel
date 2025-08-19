@@ -212,12 +212,19 @@ def test_send_hero_lines_delay_and_separate(monkeypatch):
     uniform_mock = MagicMock(return_value=3)
     monkeypatch.setattr(random, "uniform", uniform_mock)
 
-    asyncio.run(monolith.send_hero_lines(chat, "**Judas**: hi\n**Peter**: bye", context))
+    asyncio.run(
+        monolith.send_hero_lines(
+            chat,
+            "**Judas**: hi\n**Peter**: bye",
+            context,
+            participants=["Judas", "Peter"],
+        )
+    )
 
     assert chat.send_message.await_count == 4
     final_texts = [c.args[0] for c in chat.send_message.await_args_list[1::2]]
     assert final_texts == ["**Judas**\nhi", "**Peter**\nbye"]
-    assert [c.args[0] for c in sleep_mock.await_args_list] == [3, 3]
+    assert [c.args[0] for c in sleep_mock.await_args_list] == [1, 1, 1, 1, 1, 1]
     assert uniform_mock.call_count == 2
 
 
@@ -342,7 +349,15 @@ def test_send_hero_lines_reply_to(monkeypatch):
     context = SimpleNamespace(bot=SimpleNamespace(send_chat_action=AsyncMock()))
     monkeypatch.setattr(asyncio, "sleep", AsyncMock())
 
-    asyncio.run(monolith.send_hero_lines(chat, "**Judas**: hi", context, reply_to_message_id=77))
+    asyncio.run(
+        monolith.send_hero_lines(
+            chat,
+            "**Judas**: hi",
+            context,
+            reply_to_message_id=77,
+            participants=["Judas"],
+        )
+    )
 
     calls = chat.send_message.await_args_list
     assert len(calls) == 2
@@ -355,10 +370,19 @@ def test_send_hero_lines_fallback(monkeypatch):
     context = SimpleNamespace(bot=SimpleNamespace(send_chat_action=AsyncMock()))
     monkeypatch.setattr(asyncio, "sleep", AsyncMock())
 
-    asyncio.run(monolith.send_hero_lines(chat, "plain text", context))
+    asyncio.run(
+        monolith.send_hero_lines(
+            chat,
+            "plain text",
+            context,
+            participants=["Judas"],
+        )
+    )
 
     chat.send_message.assert_awaited_once_with(
-        "plain text", parse_mode=ParseMode.MARKDOWN, reply_to_message_id=None
+        "**Narrator**\nplain text",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_to_message_id=None,
     )
 
 

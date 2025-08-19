@@ -3,6 +3,7 @@ import pytest
 import random
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
+from telegram.constants import ParseMode
 
 # Prevent network calls during import
 os.environ.setdefault("ASSISTANT_ID", "test")
@@ -28,6 +29,45 @@ def test_send_chat_action_multiple_calls(monkeypatch):
         pass
     monkeypatch.setattr(asyncio, "sleep", fast_sleep)
 
-    asyncio.run(send_hero_lines(chat, "*Judas*\nhello", context))
+    asyncio.run(send_hero_lines(chat, "*Judas*\nhello", context, participants=["Judas"]))
 
     assert context.bot.send_chat_action.await_count > 1
+
+
+def test_full_unrecognized_fallback(monkeypatch, caplog):
+    chat = MagicMock(id=1, send_message=AsyncMock())
+    context = MagicMock(bot=MagicMock(send_chat_action=AsyncMock()))
+    monkeypatch.setattr(asyncio, "sleep", AsyncMock())
+
+    text = "plain text"
+    with caplog.at_level("WARNING"):
+        asyncio.run(send_hero_lines(chat, text, context, participants=["Judas"]))
+    chat.send_message.assert_awaited_once_with(
+        f"**Narrator**\n{text}",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_to_message_id=None,
+    )
+    assert "Expected 1 lines" in caplog.text
+
+
+def test_partial_unrecognized_fallback(monkeypatch, caplog):
+    chat = MagicMock(id=1, send_message=AsyncMock())
+    context = MagicMock(bot=MagicMock(send_chat_action=AsyncMock()))
+    monkeypatch.setattr(asyncio, "sleep", AsyncMock())
+
+    text = "**Judas**: hi\nno name here"
+    with caplog.at_level("WARNING"):
+        asyncio.run(
+            send_hero_lines(
+                chat,
+                text,
+                context,
+                participants=["Judas", "Peter"],
+            )
+        )
+    chat.send_message.assert_awaited_once_with(
+        f"**Narrator**\n{text}",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_to_message_id=None,
+    )
+    assert "Expected 2 lines" in caplog.text
