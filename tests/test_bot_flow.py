@@ -1,6 +1,7 @@
 import os
 import asyncio
 import time
+import random
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -154,6 +155,70 @@ def test_menu_and_start_cancel_idle(monkeypatch):
         msg2.reply_text.assert_awaited()
 
     asyncio.run(run())
+
+
+def test_no_response_when_menu_called_early(monkeypatch):
+    chat_id = 5151
+    chat = SimpleNamespace(id=chat_id, send_message=AsyncMock())
+    asyncio.run(monolith.db_get(chat_id))
+    asyncio.run(monolith.db_set(chat_id, accepted=1, chapter=1, dialogue_n=0, last_summary=""))
+
+    monkeypatch.setattr(monolith, "ensure_thread", AsyncMock(return_value="thread-1"))
+    monkeypatch.setattr(monolith, "load_chapter_context_all", AsyncMock())
+    monkeypatch.setattr(monolith, "thread_add_message", lambda *a, **k: None)
+    monkeypatch.setattr(monolith, "CHAOS", SimpleNamespace(pick=lambda *a, **k: (["Judas"], "mode")))
+    fake_client = SimpleNamespace(beta=SimpleNamespace(threads=SimpleNamespace(messages=SimpleNamespace(create=MagicMock()))))
+    monkeypatch.setattr(monolith, "client", fake_client)
+    send_mock = AsyncMock()
+    monkeypatch.setattr(monolith, "send_hero_lines", send_mock)
+
+    started = asyncio.Event()
+    finished = asyncio.Event()
+
+    async def fake_run_and_wait(*a, **k):
+        started.set()
+        await finished.wait()
+
+    monkeypatch.setattr(monolith, "run_and_wait", fake_run_and_wait)
+
+    user_msg = SimpleNamespace(chat=chat, text="hi", message_id=1)
+    user_msg.reply_text = AsyncMock()
+    update_text = SimpleNamespace(message=user_msg, effective_chat=chat)
+    context = SimpleNamespace()
+
+    async def runner():
+        task = asyncio.create_task(monolith.on_text(update_text, context))
+        await started.wait()
+        msg_menu = make_message(chat)
+        update_menu = SimpleNamespace(message=msg_menu, effective_chat=chat)
+        await monolith.menu_cmd(update_menu, context)
+        finished.set()
+        await task
+        assert send_mock.await_count == 0
+
+    asyncio.run(runner())
+
+
+def test_send_hero_lines_delay_and_separate(monkeypatch):
+    chat = SimpleNamespace(id=1)
+    typing_msgs = [SimpleNamespace(delete=AsyncMock()), SimpleNamespace(delete=AsyncMock())]
+    final_msgs = [SimpleNamespace(), SimpleNamespace()]
+    chat.send_message = AsyncMock(
+        side_effect=[typing_msgs[0], final_msgs[0], typing_msgs[1], final_msgs[1]]
+    )
+    context = SimpleNamespace(bot=SimpleNamespace(send_chat_action=AsyncMock()))
+    sleep_mock = AsyncMock()
+    monkeypatch.setattr(asyncio, "sleep", sleep_mock)
+    uniform_mock = MagicMock(return_value=3)
+    monkeypatch.setattr(random, "uniform", uniform_mock)
+
+    asyncio.run(monolith.send_hero_lines(chat, "**Judas**: hi\n**Peter**: bye", context))
+
+    assert chat.send_message.await_count == 4
+    final_texts = [c.args[0] for c in chat.send_message.await_args_list[1::2]]
+    assert final_texts == ["**Judas**\nhi", "**Peter**\nbye"]
+    assert [c.args[0] for c in sleep_mock.await_args_list] == [3, 3]
+    assert uniform_mock.call_count == 2
 
 
 def test_idle_loop_cancelled_after_menu(monkeypatch):
