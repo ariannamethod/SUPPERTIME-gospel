@@ -281,6 +281,7 @@ class ChaosDirector:
 
 CHAOS = ChaosDirector()
 LAST_ACTIVITY: dict[int, float] = {}
+INACTIVITY_TIMEOUT = 120  # seconds
 
 # =========================
 # Assistants bootstrap
@@ -970,7 +971,9 @@ async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    LAST_ACTIVITY[chat_id] = time.time()
+    now = time.time()
+    last = LAST_ACTIVITY.get(chat_id)
+    LAST_ACTIVITY[chat_id] = now
     st = await db_get(chat_id)
     msg = (update.message.text or "").strip()
     logger.info("Received message in chat %s: %s", chat_id, msg)
@@ -991,6 +994,12 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chapter_text = CHAPTERS[ch]
     participants = guess_participants(chapter_text)
     await load_chapter_context_all(chapter_text, participants)
+
+    if last and now - last > INACTIVITY_TIMEOUT and participants:
+        hero = random.choice(participants)
+        pre_text = f"**{hero}**: а, опять ты…"
+        thread_add_message(thread_id, "assistant", pre_text)
+        await send_hero_lines(update.message.chat, pre_text, context)
 
     responders, mode = CHAOS.pick(str(chat_id), chapter_text, msg)
     responders = [r for r in responders if r in participants] or participants[: min(3, len(participants))]
