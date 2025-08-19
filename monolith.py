@@ -1010,10 +1010,16 @@ async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text = "\n".join(f"**{r}**: (тишина)" for r in responders)
         glitch = MARKOV.glitch()
 
-        await q.message.delete()
-        await send_hero_lines(q.message.chat, text, context)
-        if glitch and hasattr(q.message.chat, "send_message"):
-            await q.message.chat.send_message(glitch, parse_mode=ParseMode.MARKDOWN)
+        try:
+            await send_hero_lines(q.message.chat, text, context)
+        except Exception:
+            logger.exception("Failed to send hero lines for chat %s", chat_id)
+            if hasattr(q.message.chat, "send_message"):
+                await q.message.chat.send_message("Failed to load chapter")
+        else:
+            await q.message.delete()
+            if glitch and hasattr(q.message.chat, "send_message"):
+                await q.message.chat.send_message(glitch, parse_mode=ParseMode.MARKDOWN)
         return
 
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
