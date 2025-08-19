@@ -280,3 +280,31 @@ def test_send_hero_lines_reply_to(monkeypatch):
     calls = chat.send_message.await_args_list
     assert len(calls) == 2
     assert calls[1].kwargs["reply_to_message_id"] == 77
+
+
+def test_chapter_callback_send_error(monkeypatch):
+    chat_id = 555
+    chat = SimpleNamespace(id=chat_id, send_message=AsyncMock())
+
+    asyncio.run(monolith.db_set(chat_id, accepted=1, chapter=None, dialogue_n=0, last_summary=""))
+
+    monkeypatch.setattr(monolith, "ensure_thread", AsyncMock(return_value="thread-1"))
+    monkeypatch.setattr(monolith, "load_chapter_context_all", AsyncMock())
+    monkeypatch.setattr(monolith, "thread_add_message", lambda *a, **k: None)
+    monkeypatch.setattr(monolith, "run_and_wait", AsyncMock())
+    monkeypatch.setattr(monolith, "thread_last_text", lambda tid: "**Judas**: hi")
+    monkeypatch.setattr(monolith, "CHAOS", SimpleNamespace(pick=lambda *a, **k: (["Judas"], "mode")))
+    fake_client = SimpleNamespace(beta=SimpleNamespace(threads=SimpleNamespace(messages=SimpleNamespace(create=MagicMock()))))
+    monkeypatch.setattr(monolith, "client", fake_client)
+
+    send_mock = AsyncMock(side_effect=RuntimeError("boom"))
+    monkeypatch.setattr(monolith, "send_hero_lines", send_mock)
+
+    q = make_callback_query(chat_id, chat, "ch_1")
+    update = SimpleNamespace(callback_query=q, effective_chat=chat)
+    context = SimpleNamespace()
+
+    asyncio.run(monolith.on_click(update, context))
+
+    q.message.delete.assert_not_awaited()
+    chat.send_message.assert_awaited_once_with("Failed to load chapter")
