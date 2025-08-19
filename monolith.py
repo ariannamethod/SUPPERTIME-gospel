@@ -14,7 +14,7 @@ import asyncio
 import hashlib
 import os
 from pathlib import Path
-from collections import defaultdict, deque
+from collections import defaultdict
 import contextlib
 import time
 
@@ -230,10 +230,12 @@ class MarkovEngine:
             return "(resonate_again())"
         w = random.choice(keys)
         out = [w]
-        for _ in range(random.randint(2,4)):
+        for _ in range(random.randint(2, 4)):
             nxt = self.bigrams.get(w, [])
-            if not nxt: break
-            w = random.choice(nxt); out.append(w)
+            if not nxt:
+                break
+            w = random.choice(nxt)
+            out.append(w)
         return "*" + " ".join(out) + "*"
 
 MARKOV = MarkovEngine()
@@ -250,7 +252,6 @@ class ChaosDirector:
         }
 
     def pick(self, chat_id: str, chapter_text: str, user_text: str|None):
-        import random, re
         user_silent = not user_text or not user_text.strip()
         mode = "active"
         if user_silent:
@@ -341,7 +342,6 @@ def thread_add_message(thread_id: str, role: str, content: str):
 
 async def run_and_wait(thread_id: str, extra_instructions: str | None = None, timeout_s: int = 120):
     logger.info("Starting run for thread %s", thread_id)
-    import time, asyncio
 
     for attempt in range(1, OPENAI_RETRY_ATTEMPTS + 1):
         try:
@@ -806,8 +806,38 @@ async def silence_watchdog(context: ContextTypes.DEFAULT_TYPE):
             text = f"**{hero}**: (тишина)"
         chat = await context.bot.get_chat(chat_id)
         await send_hero_lines(chat, text, context)
-        LAST_ACTIVITY[chat_id] = time.time()
+        bot_ts = time.time()
+        LAST_ACTIVITY[chat_id] = bot_ts
         CHAOS.silence[str(chat_id)] = 0
+
+        async def idle_loop():
+            nonlocal bot_ts
+            while True:
+                await asyncio.sleep(random.uniform(10, 30))
+                st_check = await db_get(chat_id)
+                if st_check.get("chapter") != ch:
+                    break
+                if LAST_ACTIVITY.get(chat_id, 0) > bot_ts:
+                    break
+                responders, _ = CHAOS.pick(str(chat_id), chapter_text, None)
+                responders = [r for r in responders if r in participants] or participants[: min(3, len(participants))]
+                scene_prompt = build_scene_prompt(
+                    ch,
+                    chapter_text,
+                    responders,
+                    None,
+                    await compress_history_for_prompt(chat_id),
+                )
+                thread_add_message(thread_id, "user", scene_prompt)
+                await run_and_wait(thread_id)
+                text_inner = thread_last_text(thread_id).strip()
+                if not text_inner:
+                    text_inner = "\n".join(f"**{r}**: (тишина)" for r in responders)
+                await send_hero_lines(chat, text_inner, context)
+                bot_ts = time.time()
+                LAST_ACTIVITY[chat_id] = bot_ts
+
+        asyncio.create_task(idle_loop())
 
 # =========================
 # Telegram Handlers
@@ -815,7 +845,7 @@ async def silence_watchdog(context: ContextTypes.DEFAULT_TYPE):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     logger.info("/start from chat %s", chat_id)
-    st = await db_get(chat_id)
+    await db_get(chat_id)
     await ensure_thread(chat_id)
     await update.message.reply_text(
         DISCLAIMER,
@@ -887,7 +917,7 @@ async def on_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await q.answer()
     chat_id = update.effective_chat.id
     LAST_ACTIVITY[chat_id] = time.time()
-    st = await db_get(chat_id)
+    await db_get(chat_id)
     thread_id = await ensure_thread(chat_id)
 
     if q.data == "no":
