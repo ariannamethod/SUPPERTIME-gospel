@@ -184,3 +184,40 @@ def test_on_text_sends_pre_message(monkeypatch):
     assert send_mock.await_count == 2
     first_text = send_mock.await_args_list[0].args[1]
     assert "опять ты" in first_text
+
+
+def test_reply_prioritizes_hero(monkeypatch):
+    chat_id = 2021
+    chat = SimpleNamespace(id=chat_id)
+
+    asyncio.run(monolith.db_get(chat_id))
+    asyncio.run(monolith.db_set(chat_id, accepted=1, chapter=1, dialogue_n=0, last_summary=""))
+
+    monkeypatch.setattr(monolith, "ensure_thread", AsyncMock(return_value="thread-1"))
+    monkeypatch.setattr(monolith, "load_chapter_context_all", AsyncMock())
+    monkeypatch.setattr(monolith, "thread_add_message", lambda *a, **k: None)
+    monkeypatch.setattr(monolith, "run_and_wait", AsyncMock())
+    monkeypatch.setattr(monolith, "thread_last_text", lambda tid: "**Judas**: ok")
+    monkeypatch.setattr(monolith, "send_hero_lines", AsyncMock())
+    monkeypatch.setattr(monolith, "CHAOS", SimpleNamespace(pick=lambda *a, **k: (["Peter"], "mode")))
+    fake_client = SimpleNamespace(beta=SimpleNamespace(threads=SimpleNamespace(messages=SimpleNamespace(create=MagicMock()))))
+    monkeypatch.setattr(monolith, "client", fake_client)
+
+    captured = {}
+
+    def fake_build_scene_prompt(ch, ch_text, responders, user_text, summary):
+        captured["responders"] = list(responders)
+        return "prompt"
+
+    monkeypatch.setattr(monolith, "build_scene_prompt", fake_build_scene_prompt)
+
+    reply_msg = SimpleNamespace(text="**Judas**\nhello")
+    user_msg = SimpleNamespace(chat=chat, text="answer", reply_to_message=reply_msg)
+    user_msg.reply_text = AsyncMock()
+    chat.send_message = AsyncMock()
+    update = SimpleNamespace(message=user_msg, effective_chat=chat)
+    context = SimpleNamespace()
+
+    asyncio.run(monolith.on_text(update, context))
+
+    assert captured["responders"][0] == "Judas"
