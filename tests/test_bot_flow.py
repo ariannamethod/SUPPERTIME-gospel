@@ -72,11 +72,13 @@ def test_full_user_flow(monkeypatch):
     assert state["chapter"] == 1
 
     # user sends a message
-    user_msg = SimpleNamespace(chat=chat, text="hello")
+    user_msg = SimpleNamespace(chat=chat, text="hello", message_id=1)
     user_msg.reply_text = AsyncMock()
     chat.send_message = AsyncMock()
     update_text = SimpleNamespace(message=user_msg, effective_chat=chat)
     asyncio.run(monolith.on_text(update_text, context))
+    send_args = monolith.send_hero_lines.await_args_list[-1]
+    assert send_args.kwargs["reply_to_message_id"] == 1
     state = asyncio.run(monolith.db_get(chat_id))
     assert state["dialogue_n"] == 1
 
@@ -171,7 +173,7 @@ def test_on_text_sends_pre_message(monkeypatch):
     send_mock = AsyncMock()
     monkeypatch.setattr(monolith, "send_hero_lines", send_mock)
 
-    user_msg = SimpleNamespace(chat=chat, text="hi")
+    user_msg = SimpleNamespace(chat=chat, text="hi", message_id=5)
     user_msg.reply_text = AsyncMock()
     chat.send_message = AsyncMock()
     update = SimpleNamespace(message=user_msg, effective_chat=chat)
@@ -184,6 +186,8 @@ def test_on_text_sends_pre_message(monkeypatch):
     assert send_mock.await_count == 2
     first_text = send_mock.await_args_list[0].args[1]
     assert "опять ты" in first_text
+    for call in send_mock.await_args_list:
+        assert call.kwargs["reply_to_message_id"] == 5
 
 
 def test_reply_prioritizes_hero(monkeypatch):
@@ -212,7 +216,7 @@ def test_reply_prioritizes_hero(monkeypatch):
     monkeypatch.setattr(monolith, "build_scene_prompt", fake_build_scene_prompt)
 
     reply_msg = SimpleNamespace(text="**Judas**\nhello")
-    user_msg = SimpleNamespace(chat=chat, text="answer", reply_to_message=reply_msg)
+    user_msg = SimpleNamespace(chat=chat, text="answer", reply_to_message=reply_msg, message_id=9)
     user_msg.reply_text = AsyncMock()
     chat.send_message = AsyncMock()
     update = SimpleNamespace(message=user_msg, effective_chat=chat)
@@ -221,3 +225,20 @@ def test_reply_prioritizes_hero(monkeypatch):
     asyncio.run(monolith.on_text(update, context))
 
     assert captured["responders"][0] == "Judas"
+    send_call = monolith.send_hero_lines.await_args
+    assert send_call.kwargs["reply_to_message_id"] == 9
+
+
+def test_send_hero_lines_reply_to(monkeypatch):
+    chat = SimpleNamespace(id=1)
+    typing_msg = SimpleNamespace(delete=AsyncMock())
+    final_msg = SimpleNamespace()
+    chat.send_message = AsyncMock(side_effect=[typing_msg, final_msg])
+    context = SimpleNamespace(bot=SimpleNamespace(send_chat_action=AsyncMock()))
+    monkeypatch.setattr(asyncio, "sleep", AsyncMock())
+
+    asyncio.run(monolith.send_hero_lines(chat, "**Judas**: hi", context, reply_to_message_id=77))
+
+    calls = chat.send_message.await_args_list
+    assert len(calls) == 2
+    assert calls[1].kwargs["reply_to_message_id"] == 77
